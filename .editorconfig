@@ -1,0 +1,26 @@
+# EditorConfig — keeps formatting consistent across editors.
+# Most editors read this automatically (VS Code, GoLand, Vim, etc).
+# Learn more: https://editorconfig.org/
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+# Go uses tabs by convention. gofmt enforces this; do not fight it.
+[*.go]
+indent_style = tab
+indent_size = 4
+
+# Makefiles MUST use tabs (it's part of make's syntax).
+[Makefile]
+indent_style = tab
+
+# Markdown sometimes uses trailing whitespace for line breaks; don't trim it.
+[*.md]
+trim_trailing_whitespace = false

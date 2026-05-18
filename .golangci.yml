@@ -1,0 +1,61 @@
+# golangci-lint configuration for Pulse Chat.
+#
+# Philosophy: start strict enough to catch real bugs, lenient enough not to
+# block learning. We'll enable more linters as the project matures.
+#
+# Run locally:    golangci-lint run
+# Auto-fix some:  golangci-lint run --fix
+
+run:
+  timeout: 5m
+  # Treat tests with the same strictness as production code. Tests are code.
+  tests: true
+
+linters:
+  # Disable the default set and enumerate the ones we want. Predictable
+  # behaviour over time as new linters are added upstream.
+  disable-all: true
+  enable:
+    # --- Correctness (always on) -----------------------------------------
+    - errcheck       # Catch unchecked errors.
+    - govet          # Reports suspicious constructs (printf args, shadowing, etc.).
+    - ineffassign    # Detects assignments whose value is never read.
+    - staticcheck    # Big bundle of correctness checks. Pays for itself daily.
+    - unused         # Unused variables, functions, types, fields.
+    - gosimple       # Suggests simpler equivalents.
+    - typecheck      # Type-checks the code (always on; here for explicitness).
+
+    # --- Style (enforce conventions) -------------------------------------
+    - gofmt          # Standard formatting.
+    - goimports      # gofmt + import grouping/ordering.
+    - misspell       # English spelling in comments and strings.
+
+    # --- Hardening -------------------------------------------------------
+    - bodyclose      # Catches unclosed HTTP response bodies (resource leak).
+    - errorlint      # Catches incorrect error-wrapping usage (%w vs %v).
+    - gocheckcompilerdirectives # //go:build correctness.
+    - copyloopvar    # Loop-variable scoping (Go 1.22+).
+
+issues:
+  # Show all issues, not just the first few per linter.
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+  exclude-rules:
+    # Tests routinely ignore errors from setup helpers; allow it there.
+    - path: _test\.go
+      linters:
+        - errcheck
+
+linters-settings:
+  errcheck:
+    # Don't complain about errors from `fmt.Fprintf` to stdout/stderr;
+    # there is nothing useful to do with those errors.
+    exclude-functions:
+      - fmt.Fprintf
+      - fmt.Fprintln
+      - fmt.Fprint
+
+  goimports:
+    # Group local imports separately from third-party.
+    local-prefixes: github.com/NoahStarkenburg/pulse-chat

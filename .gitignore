@@ -1,0 +1,50 @@
+# --- Personal learning notes (kept locally, never committed) -----------------
+# This folder holds your phase notes, concept deep-dives, and scratch work.
+# It is gitignored on purpose so you can write freely without curating.
+learning-notes/
+
+# --- Go build artifacts ------------------------------------------------------
+# Compiled binaries (Windows + Unix). `go build` produces these; never commit.
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# --- Go module cache / dependency dirs ---------------------------------------
+# `vendor/` is only committed in projects that explicitly use vendored deps.
+# We don't, so ignore it if it appears.
+vendor/
+
+# --- Coverage and profiling output -------------------------------------------
+coverage.out
+coverage.html
+*.prof
+
+# --- Environment files -------------------------------------------------------
+# Never commit secrets. .env.example IS committed (it's the template).
+.env
+.env.local
+.env.*.local
+
+# --- Editor / IDE state ------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# --- OS junk -----------------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Docker volumes (only if mounted locally) --------------------------------
+.docker-data/
+
+# --- Logs --------------------------------------------------------------------
+*.log
+logs/

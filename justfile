@@ -1,0 +1,86 @@
+# Pulse Chat — common commands.
+#
+# `just` is a modern, cross-platform alternative to `make`. Install it via:
+#   winget install Casey.Just     (Windows)
+#   brew install just             (macOS)
+#   cargo install just            (anywhere)
+#
+# Run `just` (no args) to see the list of available recipes.
+# Run `just <recipe>` to execute one.
+
+# Default: show available recipes.
+default:
+    @just --list
+
+# --- Local development -------------------------------------------------------
+
+# Run the server (Phase 1+).
+run:
+    go run ./cmd/server
+
+# Run with debug logging.
+run-debug:
+    PULSE_LOG_LEVEL=debug go run ./cmd/server
+
+# --- Quality gates -----------------------------------------------------------
+
+# Run the linter. Install golangci-lint first:
+#   go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+lint:
+    golangci-lint run ./...
+
+# Run all tests.
+test:
+    go test -race -timeout 60s ./...
+
+# Run tests with coverage. Opens an HTML report in the browser.
+coverage:
+    go test -race -coverprofile=coverage.out ./...
+    go tool cover -html=coverage.out
+
+# Tidy module deps after adding/removing imports.
+tidy:
+    go mod tidy
+
+# Format the codebase (gofmt + goimports).
+fmt:
+    gofmt -w -s .
+    @echo "If you have goimports installed, also run: goimports -w ."
+
+# --- Local infra (Docker Compose) --------------------------------------------
+
+# Start all infra services in the background.
+up:
+    docker compose -f deployments/docker-compose.yml up -d
+
+# Start a single service.
+up-one service:
+    docker compose -f deployments/docker-compose.yml up -d {{service}}
+
+# Stop all services (data preserved).
+down:
+    docker compose -f deployments/docker-compose.yml down
+
+# Stop all services AND wipe their data volumes. Use when you want a clean slate.
+nuke:
+    docker compose -f deployments/docker-compose.yml down -v
+
+# Tail logs from a service. Example: `just logs postgres`
+logs service:
+    docker compose -f deployments/docker-compose.yml logs -f {{service}}
+
+# --- Build -------------------------------------------------------------------
+
+# Build the server binary into ./bin/server.
+build:
+    go build -trimpath -ldflags="-s -w" -o bin/server ./cmd/server
+
+# Build the Docker image.
+docker-build:
+    docker build -t pulse-chat:dev -f Dockerfile .
+
+# --- Hygiene -----------------------------------------------------------------
+
+# Remove build artifacts.
+clean:
+    rm -rf bin/ coverage.out coverage.html

@@ -1,0 +1,99 @@
+# Local development infrastructure for Pulse Chat.
+#
+# This file runs Postgres, Redis, and RabbitMQ on your machine so you don't
+# need to install any of them globally. Each phase enables one more service.
+#
+# Phase 1 needs NO services from this file (the server runs standalone).
+# Phase 2 needs `postgres`.
+# Phase 3 & 4 need `redis`.
+# Phase 5 onward needs `rabbitmq`.
+#
+# Usage:
+#   docker compose -f deployments/docker-compose.yml up -d           # all services
+#   docker compose -f deployments/docker-compose.yml up -d postgres  # only one
+#   docker compose -f deployments/docker-compose.yml down            # stop all
+#   docker compose -f deployments/docker-compose.yml down -v         # stop + wipe data
+#
+# Or with the justfile shortcuts: `just up`, `just down`, etc.
+
+services:
+  # ---------------------------------------------------------------------------
+  # Postgres — durable source of truth for users, rooms, messages.
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: pulse-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: pulse
+      POSTGRES_PASSWORD: pulse
+      POSTGRES_DB: pulse
+    ports:
+      # host:container — exposed on localhost only.
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      # `pg_isready` is the canonical "is Postgres accepting connections?" check.
+      # Without a healthcheck, `depends_on: condition: service_healthy` cannot
+      # be used by dependent services to wait properly.
+      test: ["CMD-SHELL", "pg_isready -U pulse -d pulse"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # Redis — in-memory cache, Pub/Sub for cross-instance fanout, sorted sets
+  # for presence, atomic counters for rate limiting.
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: pulse-redis
+    restart: unless-stopped
+    # `--appendonly yes` enables AOF persistence so data survives restarts.
+    # For pure-cache use this isn't strictly necessary, but for learning it
+    # is useful to see Redis behaviour with persistence on.
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # RabbitMQ — durable work-queue broker for background jobs (AI moderation,
+  # notifications, search indexing).
+  #
+  # The `management` tag includes the web UI at http://localhost:15672
+  # (login: guest / guest). Use it to:
+  #   - watch queue depth in real time
+  #   - inspect message bodies for debugging
+  #   - manually publish test messages
+  #   - bind/unbind exchanges
+  # ---------------------------------------------------------------------------
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: pulse-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    ports:
+      - "127.0.0.1:5672:5672"    # AMQP protocol (the wire connection)
+      - "127.0.0.1:15672:15672"  # management UI
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres-data:
+  redis-data:
+  rabbitmq-data:
