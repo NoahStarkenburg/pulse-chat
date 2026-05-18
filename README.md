@@ -11,14 +11,15 @@ not *what*.
 
 ## Status
 
-| Phase | Topic                                       | Status      |
-|-------|---------------------------------------------|-------------|
-| 1     | WebSockets, single-server chat              | Not started |
-| 2     | Postgres for durable message history        | Not started |
-| 3     | Redis Pub/Sub for horizontal scaling        | Not started |
-| 4     | Redis as a data store (presence, cache, RL) | Not started |
-| 5     | RabbitMQ + a worker (AI moderation)         | Not started |
-| 6     | Worker pool, metrics, dashboard             | Not started |
+| Phase | Topic                                                    | Status      |
+|-------|----------------------------------------------------------|-------------|
+| 1     | WebSockets, single-server chat                           | Not started |
+| 2     | Postgres for durable message history                     | Not started |
+| 3     | Redis Pub/Sub for horizontal scaling                     | Not started |
+| 4     | Redis as a data store (presence, cache, RL)              | Not started |
+| 5     | RabbitMQ + a worker (AI moderation)                      | Not started |
+| **5b**| **gRPC: split worker into a moderation service** *(stretch)* | Not started |
+| 6     | Worker pool, metrics, dashboard                          | Not started |
 
 ## Architecture (target)
 
@@ -53,6 +54,19 @@ not *what*.
 The worker never speaks to clients directly. Redis Pub/Sub is the bridge
 between async background work and real-time UI.
 
+### Phase 5b alternative (stretch)
+
+In Phase 5b, the worker is split into two binaries connected by gRPC:
+
+```
+RabbitMQ ── cmd/worker ──gRPC──► cmd/moderation-service ──► LLM provider
+```
+
+The worker becomes "pull from queue, call gRPC, ack." The moderation service
+owns the LLM calls and exposes a typed RPC (`Moderate(MessageRequest) returns
+(stream Verdict)`). See `learning-notes/phase-05-rabbitmq.md` for the full
+rationale and `learning-notes/concepts/grpc.md` for the reading.
+
 ## Tech stack
 
 | Layer        | Choice                                   | Why                                  |
@@ -63,6 +77,7 @@ between async background work and real-time UI.
 | Database     | Postgres 16 + [`pgx`][pgx]               | No ORM. Learn SQL properly. |
 | Cache + PubSub | Redis 7 + [`go-redis`][goredis]         | Single tool, multiple roles |
 | Queue        | RabbitMQ 3.13 + [`amqp091-go`][amqp]     | Canonical AMQP broker; teaches the model |
+| RPC (5b)     | gRPC + Protobuf + [`buf`][buf]           | Typed service contracts, codegen, streaming (Phase 5b stretch) |
 | Logging      | `log/slog`                               | Standard library structured logging |
 | Migrations   | [`goose`][goose]                         | Lightweight, SQL-first |
 | Tests        | `go test` + [`testcontainers-go`][tc]    | Integration tests against real infra |
@@ -77,6 +92,7 @@ between async background work and real-time UI.
 [amqp]: https://github.com/rabbitmq/amqp091-go
 [goose]: https://github.com/pressly/goose
 [tc]: https://github.com/testcontainers/testcontainers-go
+[buf]: https://buf.build/docs/introduction
 
 ## Prerequisites
 
@@ -122,27 +138,32 @@ just down        # stop Docker infra
 ```
 pulse-chat/
 ├── cmd/
-│   └── server/             # Main API + WebSocket binary (Phase 1+)
-│       └── main.go
-├── internal/               # Private packages — not importable by other modules
-│   ├── chat/               # Hub, Client, message types (Phase 1)
-│   ├── config/             # Env parsing, single Config struct
-│   ├── store/              # Postgres repository (Phase 2)
-│   ├── cache/              # Redis data wrapper (Phase 4)
-│   └── bus/                # Redis Pub/Sub + RabbitMQ (Phases 3, 5)
-├── migrations/             # SQL migrations (Phase 2+)
+│   ├── server/                 # Main API + WebSocket binary (Phase 1+)
+│   │   └── main.go
+│   ├── worker/                 # Queue consumer binary (Phase 5)
+│   └── moderation-service/     # gRPC service (Phase 5b stretch)
+├── internal/                   # Private packages — not importable by other modules
+│   ├── chat/                   # Hub, Client, message types (Phase 1)
+│   ├── config/                 # Env parsing, single Config struct
+│   ├── store/                  # Postgres repository (Phase 2)
+│   ├── cache/                  # Redis data wrapper (Phase 4)
+│   ├── bus/                    # Redis Pub/Sub + RabbitMQ (Phases 3, 5)
+│   └── moderation/             # Moderation logic shared by worker + service (Phase 5/5b)
+├── proto/                      # .proto schemas (Phase 5b)
+├── migrations/                 # SQL migrations (Phase 2+)
 ├── deployments/
-│   └── docker-compose.yml  # Local infra stack
+│   └── docker-compose.yml      # Local infra stack
 ├── .github/
 │   └── workflows/
-│       └── ci.yml          # Lint + test + build on every PR
-├── .golangci.yml           # Linter config
-├── Dockerfile              # Multi-stage build for the server binary
-├── justfile                # Common commands
-├── go.mod / go.sum         # Module + dependency pins
-├── README.md               # You are here
-├── LICENSE                 # MIT
-└── learning-notes/         # gitignored — your personal notes & deep dives
+│       └── ci.yml              # Lint + test + build on every PR
+├── .golangci.yml               # Linter config
+├── buf.yaml / buf.gen.yaml     # Protobuf tooling config (Phase 5b)
+├── Dockerfile                  # Multi-stage build for the server binary
+├── justfile                    # Common commands
+├── go.mod / go.sum             # Module + dependency pins
+├── README.md                   # You are here
+├── LICENSE                     # MIT
+└── learning-notes/             # gitignored — your personal notes & deep dives
 ```
 
 Why `internal/`? Anything inside `internal/` cannot be imported by code outside

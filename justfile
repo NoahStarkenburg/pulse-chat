@@ -79,6 +79,19 @@ build:
 docker-build:
     docker build -t pulse-chat:dev -f Dockerfile .
 
+# --- Protobuf / gRPC (Phase 5b) ----------------------------------------------
+# Uncomment these when you reach Phase 5b. You'll need `buf` installed:
+#   go install github.com/bufbuild/buf/cmd/buf@latest
+#
+# proto-gen:
+#     buf generate
+#
+# proto-lint:
+#     buf lint
+#
+# proto-breaking:
+#     buf breaking --against '.git#branch=main'
+
 # --- Hygiene -----------------------------------------------------------------
 
 # Remove build artifacts.

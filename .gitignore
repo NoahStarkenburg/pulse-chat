@@ -48,3 +48,8 @@ desktop.ini
 # --- Logs --------------------------------------------------------------------
 *.log
 logs/
+
+# --- Generated protobuf code (Phase 5b) --------------------------------------
+# We don't commit generated code; CI / pre-commit / `just proto-gen` produces
+# it on demand. Trade-off documented in learning-notes/phase-05-rabbitmq.md.
+internal/gen/
