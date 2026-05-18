@@ -1,0 +1,62 @@
+// VS Code Dev Container — opens this repo in a containerized Go
+// environment so you get the same setup every time, regardless of what's
+// installed on your host machine.
+//
+// To use: open this folder in VS Code with the Dev Containers extension
+// installed; it will prompt to "Reopen in Container."
+//
+// Why bother?
+//   - Eliminates "works on my machine." The container is reproducible.
+//   - You don't need Go installed on Windows — the container has it.
+//   - Postgres / Redis / RabbitMQ are reachable directly inside the
+//     container (when you run `just up`).
+//
+// Schema reference: https://containers.dev/implementors/json_reference/
+{
+  "name": "pulse-chat",
+
+  // Base image: official Go dev container, includes Go, git, common tools.
+  "image": "mcr.microsoft.com/devcontainers/go:1-1.23-bookworm",
+
+  // Features add tools on top of the base image. Each is a maintained
+  // installer; see https://containers.dev/features for the catalog.
+  "features": {
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/guiyomh/features/just:0": {}
+  },
+
+  // Mount the parent repo over a non-bind volume for performance on
+  // Windows (bind mounts are slow there). Omit if you prefer bind.
+  // "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/${localWorkspaceFolderBasename},type=bind,consistency=cached",
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "golang.go",
+        "ms-azuretools.vscode-docker",
+        "redhat.vscode-yaml",
+        "esbenp.prettier-vscode",
+        "EditorConfig.EditorConfig"
+      ],
+      "settings": {
+        "go.useLanguageServer": true,
+        "go.lintTool": "golangci-lint",
+        "go.lintFlags": ["--fast"],
+        "editor.formatOnSave": true,
+        "[go]": {
+          "editor.defaultFormatter": "golang.go"
+        }
+      }
+    }
+  },
+
+  // Forward common ports automatically so localhost:8080 works.
+  "forwardPorts": [8080, 5432, 6379, 5672, 15672, 50051],
+
+  // Run once after the container is created.
+  "postCreateCommand": "go mod download && echo 'devcontainer ready'",
+
+  // Run a non-root user so file ownership matches host.
+  "remoteUser": "vscode"
+}

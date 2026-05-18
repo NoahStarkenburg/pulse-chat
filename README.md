@@ -9,17 +9,39 @@ This is a learning project built in public. The architecture, phasing, and
 discipline are deliberate. Code is written with comments that explain *why*,
 not *what*.
 
+## What makes this different
+
+Most "learn distributed systems" projects skip the parts that actually
+teach you. This one doesn't:
+
+- **Tests are a required deliverable, not a stretch goal.** Each phase
+  includes test scaffolding and an explicit "tests are deliverables"
+  checklist.
+- **Deliberate failure experiments per phase.** Kill the worker, drop
+  Redis, blow up Postgres — the breaking is the lesson.
+- **Self-quiz at the end of every phase.** If you can't answer the
+  questions in your own words, the phase isn't done.
+- **ADRs (Architecture Decision Records)** document *why* — see
+  [`decisions/`](./decisions/).
+- **Resilience patterns are first-class** — timeouts, retries, circuit
+  breakers, idempotency, DLQs are introduced phase-by-phase, not
+  retrofitted.
+- **Live deploy from Phase 1.** A public URL on Fly.io as a Phase 1
+  stretch goal. Motivation compounds.
+
 ## Status
 
-| Phase | Topic                                                    | Status      |
-|-------|----------------------------------------------------------|-------------|
-| 1     | WebSockets, single-server chat                           | Not started |
-| 2     | Postgres for durable message history                     | Not started |
-| 3     | Redis Pub/Sub for horizontal scaling                     | Not started |
-| 4     | Redis as a data store (presence, cache, RL)              | Not started |
-| 5     | RabbitMQ + a worker (AI moderation)                      | Not started |
-| **5b**| **gRPC: split worker into a moderation service** *(stretch)* | Not started |
-| 6     | Worker pool, metrics, dashboard                          | Not started |
+| Phase  | Topic                                                       | Status      |
+|--------|-------------------------------------------------------------|-------------|
+| 1      | WebSockets, single-server chat                              | Not started |
+| **1.5**| **Authentication (sessions, middleware, secure WS upgrade)**| Not started |
+| 2      | Postgres for durable message history                        | Not started |
+| 3      | Redis Pub/Sub for horizontal scaling                        | Not started |
+| 4      | Redis as a data store (presence, cache, rate limiting)      | Not started |
+| 5      | RabbitMQ + a worker (AI moderation)                         | Not started |
+| **5b** | **gRPC: split worker into a moderation service** *(stretch)*| Not started |
+| 6      | Worker pool, metrics, dashboard, load tests                 | Not started |
+| **7**  | **Kubernetes deployment (k3s + Helm + GitHub Actions CD)**  | Not started |
 
 ## Architecture (target)
 
@@ -145,23 +167,35 @@ pulse-chat/
 ├── internal/                   # Private packages — not importable by other modules
 │   ├── chat/                   # Hub, Client, message types (Phase 1)
 │   ├── config/                 # Env parsing, single Config struct
+│   ├── auth/                   # Sessions, middleware, password hashing (Phase 1.5)
 │   ├── store/                  # Postgres repository (Phase 2)
 │   ├── cache/                  # Redis data wrapper (Phase 4)
 │   ├── bus/                    # Redis Pub/Sub + RabbitMQ (Phases 3, 5)
 │   └── moderation/             # Moderation logic shared by worker + service (Phase 5/5b)
 ├── proto/                      # .proto schemas (Phase 5b)
 ├── migrations/                 # SQL migrations (Phase 2+)
+├── frontend/                   # Browser client (HTML + JS) — Phase 1+
+├── loadtest/                   # k6 load test scripts (Phase 6+)
+├── decisions/                  # Architecture Decision Records (ADRs)
+├── deploy/
+│   ├── helm/pulse-chat/        # Helm chart (Phase 7)
+│   └── k8s/                    # Raw manifests (Phase 7 learning fallback)
 ├── deployments/
 │   └── docker-compose.yml      # Local infra stack
+├── .devcontainer/              # VS Code Dev Container config
 ├── .github/
+│   ├── pull_request_template.md
 │   └── workflows/
 │       └── ci.yml              # Lint + test + build on every PR
-├── .golangci.yml               # Linter config
+├── .golangci.yml               # Strict linter config
+├── .pre-commit-config.yaml     # Optional pre-commit hooks
+├── .dockerignore               # Docker build context exclusions
 ├── buf.yaml / buf.gen.yaml     # Protobuf tooling config (Phase 5b)
 ├── Dockerfile                  # Multi-stage build for the server binary
 ├── justfile                    # Common commands
 ├── go.mod / go.sum             # Module + dependency pins
 ├── README.md                   # You are here
+├── CONTRIBUTING.md             # Workflow + self-review checklist
 ├── LICENSE                     # MIT
 └── learning-notes/             # gitignored — your personal notes & deep dives
 ```
@@ -253,6 +287,17 @@ them, fix the code.
     comment is for the reader who needs to know the constraint, the trade-off,
     or the historical incident.
 
+11. **Tests are deliverables, not stretch goals.** Each phase has explicit
+    test requirements. PRs without tests don't merge.
+
+12. **Significant decisions get an ADR.** See [`decisions/`](./decisions/).
+    Future-you and your interviewer will thank you.
+
+13. **Commits follow Conventional Commits.** See [CONTRIBUTING.md](./CONTRIBUTING.md).
+
+14. **Every phase ends with a deliberate failure experiment.** Watching
+    the system break teaches more than watching it work.
+
 ## Learning notes
 
 The `learning-notes/` folder is gitignored — that's your personal scratch
@@ -263,6 +308,19 @@ vs. message queues, etc.).
 
 Treat the notes as a thinking tool, not a deliverable. Honest "I don't yet
 understand X" entries are worth more than polished summaries.
+
+## Demo
+
+<!-- Phase 1 stretch: deploy to Fly.io, embed a gif here, link the live URL. -->
+
+> A live demo + a 30-second gif of two browser tabs chatting will live
+> here after Phase 1's stretch goal (Fly.io deployment) is complete.
+> See `learning-notes/phase-01-websockets.md` for the deploy steps.
+
+## Contributing
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for the local setup, branching
+rules, commit conventions, and self-review checklist.
 
 ## License
 

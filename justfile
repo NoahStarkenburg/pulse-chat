@@ -92,6 +92,24 @@ docker-build:
 # proto-breaking:
 #     buf breaking --against '.git#branch=main'
 
+# --- Architecture Decision Records (ADRs) ------------------------------------
+
+# Create a new ADR. Usage: just adr "use sqlc for typed queries"
+adr title:
+    @next=$(printf "%04d" $(( $(ls decisions/*.md 2>/dev/null | grep -E '^decisions/[0-9]{4}-' | wc -l) + 0 ))); \
+    slug=$(echo "{{title}}" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd 'a-z0-9-'); \
+    file="decisions/${next}-${slug}.md"; \
+    cp decisions/template.md "$file"; \
+    echo "Created $file. Edit it now."
+
+# --- Load testing (Phase 6+) -------------------------------------------------
+# k6 must be installed: winget install k6 --source winget
+# loadtest script:
+#     just loadtest websocket-fanout
+
+# loadtest script:
+#     k6 run loadtest/{{script}}.js
+
 # --- Hygiene -----------------------------------------------------------------
 
 # Remove build artifacts.

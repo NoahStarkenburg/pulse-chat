@@ -1,43 +1,57 @@
 # golangci-lint configuration for Pulse Chat.
 #
-# Philosophy: start strict enough to catch real bugs, lenient enough not to
-# block learning. We'll enable more linters as the project matures.
+# Philosophy: strict enough to catch real bugs and shape good habits,
+# pragmatic enough to not block learning. Lint findings should teach
+# you something — when one fires, read the underlying rule before silencing.
 #
 # Run locally:    golangci-lint run
 # Auto-fix some:  golangci-lint run --fix
 
 run:
   timeout: 5m
-  # Treat tests with the same strictness as production code. Tests are code.
   tests: true
 
 linters:
-  # Disable the default set and enumerate the ones we want. Predictable
-  # behaviour over time as new linters are added upstream.
   disable-all: true
   enable:
     # --- Correctness (always on) -----------------------------------------
-    - errcheck       # Catch unchecked errors.
-    - govet          # Reports suspicious constructs (printf args, shadowing, etc.).
+    - errcheck       # Catch unchecked errors. The #1 source of silent bugs in Go.
+    - govet          # Suspicious constructs (printf args, shadowing, locking).
     - ineffassign    # Detects assignments whose value is never read.
-    - staticcheck    # Big bundle of correctness checks. Pays for itself daily.
+    - staticcheck    # Massive correctness bundle. Pays for itself daily.
     - unused         # Unused variables, functions, types, fields.
-    - gosimple       # Suggests simpler equivalents.
-    - typecheck      # Type-checks the code (always on; here for explicitness).
+    - typecheck      # Type-checks the code (mandatory; explicit here).
 
     # --- Style (enforce conventions) -------------------------------------
     - gofmt          # Standard formatting.
     - goimports      # gofmt + import grouping/ordering.
+    - gofumpt        # Stricter gofmt — eliminates style debates.
     - misspell       # English spelling in comments and strings.
+    - revive         # Style + naming + complexity. Replaces golint.
 
-    # --- Hardening -------------------------------------------------------
+    # --- Hardening / discipline ------------------------------------------
     - bodyclose      # Catches unclosed HTTP response bodies (resource leak).
-    - errorlint      # Catches incorrect error-wrapping usage (%w vs %v).
+    - errorlint      # Catches incorrect error-wrapping (%w vs %v).
     - gocheckcompilerdirectives # //go:build correctness.
     - copyloopvar    # Loop-variable scoping (Go 1.22+).
+    - contextcheck   # Verify context.Context is passed correctly.
+    - durationcheck  # Catches silly time.Duration arithmetic mistakes.
+    - exhaustive     # Switch-on-enum exhaustiveness.
+    - forbidigo      # Forbid specific function calls (see config below).
+    - nilerr         # Catches `return nil` when `err != nil`.
+    - noctx          # HTTP requests without a Context.
+    - rowserrcheck   # database/sql Rows.Err() handling.
+    - sqlclosecheck  # database/sql Close() handling.
+    - tparallel      # t.Parallel() correctness.
+    - unconvert      # Unnecessary type conversions.
+    - wastedassign   # Useless assignments.
+    - whitespace     # Trailing newlines etc.
+
+    # --- Security --------------------------------------------------------
+    - gosec          # Security issues. Will fire on intentional things;
+                     # silence with care.
 
 issues:
-  # Show all issues, not just the first few per linter.
   max-issues-per-linter: 0
   max-same-issues: 0
 
@@ -46,16 +60,34 @@ issues:
     - path: _test\.go
       linters:
         - errcheck
+        - gosec
+        - forbidigo
 
 linters-settings:
   errcheck:
-    # Don't complain about errors from `fmt.Fprintf` to stdout/stderr;
-    # there is nothing useful to do with those errors.
     exclude-functions:
       - fmt.Fprintf
       - fmt.Fprintln
       - fmt.Fprint
+      - (net/http.ResponseWriter).Write
 
   goimports:
-    # Group local imports separately from third-party.
     local-prefixes: github.com/NoahStarkenburg/pulse-chat
+
+  revive:
+    rules:
+      - name: exported          # public symbols need doc comments
+      - name: package-comments
+      - name: var-naming
+      - name: indent-error-flow
+      - name: error-return
+      - name: error-strings
+
+  forbidigo:
+    forbid:
+      # Forbid fmt.Println in non-test code. Use slog.
+      - pattern: '^fmt\.Println$'
+        msg: "Use slog (structured logging), not fmt.Println."
+      # Forbid panic() except via log.Fatal in main.
+      - pattern: '^panic$'
+        msg: "Return an error instead of panicking. (main.go may use log.Fatal.)"

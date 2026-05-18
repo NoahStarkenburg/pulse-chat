@@ -1,0 +1,61 @@
+# Files NOT copied into the Docker build context.
+#
+# Why this matters: every `COPY` in your Dockerfile starts from a snapshot
+# of your repo. Without .dockerignore, Docker uploads your entire repo
+# (including node_modules, build artifacts, learning notes, .git) to the
+# Docker daemon before the build can start. That's:
+#   - slow (every change re-uploads the whole tree)
+#   - leaky (your local .env / secrets could be baked into a layer)
+#   - bloat-prone (final image ends up containing things you didn't want)
+#
+# Rule of thumb: ignore anything that doesn't need to compile into the
+# binary. Then `git status` and `docker build` see the same surface.
+
+# --- VCS / metadata ---------------------------------------------------------
+.git/
+.gitignore
+.gitattributes
+.github/
+.editorconfig
+
+# --- Build artifacts --------------------------------------------------------
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+coverage.*
+
+# --- Local-only / personal --------------------------------------------------
+learning-notes/
+.env
+.env.local
+.vscode/
+.idea/
+.devcontainer/
+
+# --- Tooling configs that don't affect the binary ---------------------------
+.dockerignore
+Dockerfile
+docker-compose*.yml
+justfile
+Makefile
+.pre-commit-config.yaml
+.golangci.yml
+
+# --- Docs (markdown is fine inside the image if you want; we exclude here) --
+*.md
+LICENSE
+decisions/
+
+# --- OS junk ----------------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Logs -------------------------------------------------------------------
+*.log
+logs/

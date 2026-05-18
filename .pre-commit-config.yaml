@@ -1,0 +1,45 @@
+# Pre-commit hooks — checks that run automatically before `git commit`.
+#
+# Why bother when we have CI? CI catches issues *after* you push. Pre-commit
+# catches them in the 5 seconds before the commit is even created. The
+# tighter feedback loop means you fix problems while the code is fresh in
+# your head.
+#
+# Install once:
+#   pip install pre-commit          (or: brew install pre-commit)
+#   pre-commit install              (sets up the git hook)
+#
+# Bypass occasionally (use sparingly):
+#   git commit --no-verify
+#
+# Docs: https://pre-commit.com/
+
+repos:
+  # --- General hygiene (cross-language) --------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+        args: ["--maxkb=500"]
+      - id: check-merge-conflict
+      - id: mixed-line-ending
+        args: ["--fix=lf"]
+
+  # --- Go-specific -----------------------------------------------------------
+  - repo: https://github.com/dnephin/pre-commit-golang
+    rev: v0.5.1
+    hooks:
+      - id: go-fmt
+      - id: go-mod-tidy
+      - id: golangci-lint
+        # Only run on commit, not on every save. Lint is slow-ish.
+
+  # --- Secrets scanning ------------------------------------------------------
+  # Catches accidental commits of API keys, tokens, etc. Saves your bacon.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.4
+    hooks:
+      - id: gitleaks
