@@ -23,13 +23,14 @@ linters:
     - typecheck      # Type-checks the code (mandatory; explicit here).
 
     # --- Style (enforce conventions) -------------------------------------
-    # NOTE: gofmt + gofumpt are temporarily disabled until Phase 1 starts.
-    # The scaffold uses 3-space indents in doc-comment lists; Go 1.19+'s
-    # gofmt wants 2-space. Once Go is installed locally, run `gofmt -w .`
-    # to normalize and re-enable both linters here.
-    # - gofmt
-    # - gofumpt
-    - goimports      # Import grouping/ordering (the part that matters most).
+    # FORMATTING LINTERS — temporarily disabled. Re-enable after running
+    # `just fix-fmt` once Go is installed locally. They flag the scaffold's
+    # hand-written doc-comment lists (Go 1.19+ has strict canonical
+    # indentation for numbered/bulleted lists in comments, which gofmt
+    # auto-normalizes via -w).
+    # - gofmt        # Standard formatting.
+    # - gofumpt      # Stricter gofmt — eliminates style debates.
+    # - goimports    # Import grouping/ordering AND gofmt's comment rules.
     - misspell       # English spelling in comments and strings.
     - revive         # Style + naming + complexity. Replaces golint.
 

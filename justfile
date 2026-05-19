@@ -47,6 +47,17 @@ fmt:
     gofmt -w -s .
     @echo "If you have goimports installed, also run: goimports -w ."
 
+# One-shot normalize formatting after first Go install. Run this once,
+# commit the changes, then re-enable gofmt/gofumpt/goimports in .golangci.yml.
+fix-fmt:
+    @echo "Installing goimports if needed..."
+    @go install golang.org/x/tools/cmd/goimports@latest
+    gofmt -w -s .
+    goimports -w -local github.com/NoahStarkenburg/pulse-chat .
+    @echo
+    @echo "Done. Now re-enable gofmt + gofumpt + goimports in .golangci.yml"
+    @echo "(uncomment the three lines under 'FORMATTING LINTERS') and commit."
+
 # --- Local infra (Docker Compose) --------------------------------------------
 
 # Start all infra services in the background.
