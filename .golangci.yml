@@ -86,8 +86,8 @@ linters-settings:
   forbidigo:
     forbid:
       # Forbid fmt.Println in non-test code. Use slog.
-      - pattern: '^fmt\.Println$'
+      - p: '^fmt\.Println$'
         msg: "Use slog (structured logging), not fmt.Println."
       # Forbid panic() except via log.Fatal in main.
-      - pattern: '^panic$'
+      - p: '^panic$'
         msg: "Return an error instead of panicking. (main.go may use log.Fatal.)"
