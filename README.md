@@ -42,6 +42,12 @@ teach you. This one doesn't:
 | **5b** | **gRPC: split worker into a moderation service** *(stretch)*| Not started |
 | 6      | Worker pool, metrics, dashboard, load tests                 | Not started |
 | **7**  | **Kubernetes deployment (k3s + Helm + GitHub Actions CD)**  | Not started |
+| 7a     | Stretch: real API gateway (Envoy or Kong)                   | Not started |
+| 7b     | Stretch: CDN for the frontend (CloudFront/Cloudflare)       | Not started |
+| 7c     | Stretch: production observability stack (OTel + Tempo + Loki) | Not started |
+| 7d     | Stretch: AWS EKS hosting + CloudTrail audit logging         | Not started |
+| 7e     | Stretch: chaos engineering (Chaos Mesh experiments)         | Not started |
+| **8**  | **Sharded chat (Twitch-scale: consistent hashing + etcd registry)** | Not started |
 
 ## Architecture (target)
 

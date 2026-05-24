@@ -158,10 +158,19 @@ NOT looking for "give me working code." Every code change must teach.
 5b. (stretch) gRPC: split worker into moderation-service
 6. Worker pool, metrics, dashboard, load tests
 7. Kubernetes deployment (k3s + Helm + GitHub Actions CD)
+7a. (stretch) Real API gateway (Envoy or Kong)
+7b. (stretch) CDN for the frontend (CloudFront / Cloudflare)
+7c. (stretch) Production observability stack (OTel + Prometheus + Tempo + Loki)
+7d. (stretch) AWS EKS hosting + CloudTrail audit logging
+7e. (stretch) Chaos engineering experiments
+8. (capstone stretch) Sharded chat with consistent hashing + etcd registry — Twitch-scale architecture
 
 **Current status:** Phase 1 not yet started. Scaffold in place; CI green.
 
-**Don't skip ahead.** Each phase teaches what the NEXT phase needs.
+**Don't skip ahead.** Each phase teaches what the NEXT phase needs. The
+7a-7e and 8 stretches are intentionally optional — Phase 7 itself can
+be "done" without them. Pick whichever stretches match interest and
+time budget.
 
 ---
 
