@@ -47,7 +47,9 @@ teach you. This one doesn't:
 | 7c     | Stretch: production observability stack (OTel + Tempo + Loki) | Not started |
 | 7d     | Stretch: AWS EKS hosting + CloudTrail audit logging         | Not started |
 | 7e     | Stretch: chaos engineering (Chaos Mesh experiments)         | Not started |
+| 7f     | Stretch: service mesh (Linkerd or Istio)                    | Not started |
 | **8**  | **Sharded chat (Twitch-scale: consistent hashing + etcd registry)** | Not started |
+| **9**  | **Production-grade idempotency + resumable workflows + DLQ replay (capstone)** | Not started |
 
 ## Architecture (target)
 
