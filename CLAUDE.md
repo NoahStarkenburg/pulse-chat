@@ -163,7 +163,9 @@ NOT looking for "give me working code." Every code change must teach.
 7c. (stretch) Production observability stack (OTel + Prometheus + Tempo + Loki)
 7d. (stretch) AWS EKS hosting + CloudTrail audit logging
 7e. (stretch) Chaos engineering experiments
+7f. (stretch) Service mesh (Linkerd or Istio)
 8. (capstone stretch) Sharded chat with consistent hashing + etcd registry — Twitch-scale architecture
+9. (capstone stretch) Production-grade idempotency + resumable workflows + DLQ replay
 
 **Current status:** Phase 1 not yet started. Scaffold in place; CI green.
 
