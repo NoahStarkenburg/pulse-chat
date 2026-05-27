@@ -105,6 +105,21 @@ NOT looking for "give me working code." Every code change must teach.
   or proceed differently?"
 - **Don't add features / refactor / introduce abstractions beyond
   what was asked.** A bug fix doesn't need surrounding cleanup.
+- **Add inline `NOTE:` annotations on the FIRST occurrence of any
+  jargon term** in code comments AND in any new MD file you write or
+  edit. Format: `NOTE: "fanout" = one-to-many distribution; broker
+  delivers a single message to every subscriber.` Reference
+  `learning-notes/concepts/glossary.md` for the canonical longer
+  definitions. Terms that ALWAYS need a first-mention NOTE: fanout,
+  publisher, subscriber, pub/sub, queue, cluster, shard, partition,
+  broker, channel, topic, consumer, consumer group, consensus,
+  backpressure, idempotent, DLQ, sticky session, sidecar, registry,
+  consistent hashing, anycast, TTL, LRU, mTLS, gateway, ingress.
+- **For any phase that introduces a new routing/protocol approach**,
+  add a "Why this routing approach (and what changed from Phase X)"
+  section explaining: what we had before, what changed, why we're
+  switching, what problem the new approach solves, what trade-offs
+  we accept.
 
 ---
 
