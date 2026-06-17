@@ -67,6 +67,7 @@ issues:
         - errcheck
         - gosec
         - forbidigo
+        - bodyclose # websocket.Dial's response body is owned by the library
 
     # internal/chat/* contains scaffold methods (readPump, writePump, etc.)
     # that are intentionally not yet wired up - Phase 1 implements them.
@@ -82,6 +83,7 @@ linters-settings:
       - fmt.Fprintln
       - fmt.Fprint
       - (net/http.ResponseWriter).Write
+      - (*github.com/coder/websocket.Conn).CloseNow
 
   goimports:
     local-prefixes: github.com/NoahStarkenburg/pulse-chat
