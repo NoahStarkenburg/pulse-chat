@@ -85,6 +85,10 @@ linters-settings:
       - (net/http.ResponseWriter).Write
       - (*github.com/coder/websocket.Conn).CloseNow
 
+  exhaustive:
+    # A default case is treated as handling the remaining enum values.
+    default-signifies-exhaustive: true
+
   goimports:
     local-prefixes: github.com/NoahStarkenburg/pulse-chat
 
