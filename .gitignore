@@ -53,3 +53,6 @@ logs/
 # We don't commit generated code; CI / pre-commit / `just proto-gen` produces
 # it on demand. Trade-off documented in learning-notes/phase-05-rabbitmq.md.
 internal/gen/
+
+# Local assistant config, kept out of the public repo
+CLAUDE.md
