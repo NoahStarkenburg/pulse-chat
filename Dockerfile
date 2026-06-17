@@ -14,7 +14,7 @@
 # around. That's a feature, not a bug, in production.
 
 # -----------------------------------------------------------------------------
-# Stage 1 — build
+# Stage 1 - build
 # -----------------------------------------------------------------------------
 FROM golang:1.23-alpine AS builder
 
@@ -42,7 +42,7 @@ RUN CGO_ENABLED=0 GOOS=linux \
     ./cmd/server
 
 # -----------------------------------------------------------------------------
-# Stage 2 — runtime
+# Stage 2 - runtime
 # -----------------------------------------------------------------------------
 FROM gcr.io/distroless/static-debian12:nonroot
 
@@ -53,7 +53,7 @@ USER nonroot:nonroot
 # Copy ONLY the binary. Nothing else from the build stage.
 COPY --from=builder /out/server /server
 
-# Expose the default port. This is documentation — it does not actually
+# Expose the default port. This is documentation - it does not actually
 # publish anything; the `docker run -p` flag (or compose) does that.
 EXPOSE 8080
 

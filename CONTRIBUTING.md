@@ -33,13 +33,13 @@ clarity. The format is:
 ```
 
 Types:
-- `feat` — new feature
-- `fix` — bug fix
-- `refactor` — code change that neither fixes a bug nor adds a feature
-- `test` — adding or fixing tests
-- `docs` — documentation only
-- `chore` — tooling, build scripts, dependencies
-- `perf` — performance improvement
+- `feat` - new feature
+- `fix` - bug fix
+- `refactor` - code change that neither fixes a bug nor adds a feature
+- `test` - adding or fixing tests
+- `docs` - documentation only
+- `chore` - tooling, build scripts, dependencies
+- `perf` - performance improvement
 
 Examples:
 - `feat(chat): wire WebSocket upgrade handler`
@@ -50,9 +50,9 @@ Body: explain *why*, not *what*. The diff already shows what.
 
 ## Pull requests
 
-Every PR — including yours, even when no one else will review it — goes
+Every PR - including yours, even when no one else will review it - goes
 through the template at `.github/pull_request_template.md`. The
-"What I learned" section is the most important — it's the artifact
+"What I learned" section is the most important - it's the artifact
 that survives the branch.
 
 ### Self-review checklist

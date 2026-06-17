@@ -2,7 +2,7 @@ module github.com/NoahStarkenburg/pulse-chat
 
 go 1.23
 
-// Phase 1 dependencies — added when you run `go mod tidy` after writing the
+// Phase 1 dependencies - added when you run `go mod tidy` after writing the
 // first code that imports them. Listed here for orientation only:
 //
 //   github.com/coder/websocket    // WebSocket protocol implementation
