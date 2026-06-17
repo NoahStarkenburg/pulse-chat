@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pulse Chat test client</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: system-ui, sans-serif; max-width: 640px; margin: 2rem auto; padding: 0 1rem; }
+  h1 { font-size: 1.2rem; display: flex; align-items: center; gap: .6rem; }
+  #setup { display: flex; gap: .5rem; margin-bottom: .75rem; flex-wrap: wrap; }
+  #setup input { padding: .4rem .5rem; }
+  #status { font-size: .8rem; padding: .15rem .5rem; border-radius: .4rem; }
+  .s-closed     { background: #fde2e2; color: #8a1f1f; }
+  .s-open       { background: #e2f7e6; color: #1f7a33; }
+  .s-connecting { background: #fff4d6; color: #8a6d1f; }
+  #log { border: 1px solid #8884; border-radius: .5rem; height: 320px; overflow-y: auto; padding: .5rem; margin: .75rem 0; }
+  .msg { margin: .25rem 0; }
+  .msg .who { font-weight: 600; }
+  .msg .when { color: #8888; font-size: .72rem; margin-left: .4rem; }
+  .sys { color: #8888; font-style: italic; }
+  #composer { display: flex; gap: .5rem; }
+  #composer input { flex: 1; padding: .5rem; }
+  button { padding: .5rem .8rem; cursor: pointer; }
+</style>
+</head>
+<body>
+  <h1>Pulse Chat test client <span id="status" class="s-closed">disconnected</span></h1>
+
+  <div id="setup">
+    <input id="room" placeholder="room" value="general" />
+    <input id="name" placeholder="your name" value="alice" />
+    <button id="connect">Connect</button>
+  </div>
+
+  <div id="log" aria-live="polite"></div>
+
+  <form id="composer">
+    <input id="text" placeholder="Type a message..." autocomplete="off" disabled />
+    <button id="send" disabled>Send</button>
+  </form>
+
+<script>
+// Pulse Chat test client. Vanilla JS, no framework. This is the browser side of
+// the same WebSocket protocol the Go server speaks (see internal/chat/message.go):
+//   client -> server: { "type": "chat",    "room": "...", "text": "..." }
+//   server -> client: { "type": "message", "room": "...", "text": "...",
+//                       "id": "...", "sender": "...", "timestamp": "..." }
+// We send only type/room/text; the server stamps id/sender/timestamp.
+
+let socket = null;
+const $ = (id) => document.getElementById(id);
+const logEl = $("log");
+
+function setStatus(state, text) {
+  const el = $("status");
+  el.className = "s-" + state; // s-open | s-closed | s-connecting
+  el.textContent = text;
+}
+
+function addMessage({ who, text, when, system }) {
+  const div = document.createElement("div");
+  if (system) {
+    div.className = "msg sys";
+    div.textContent = text;
+  } else {
+    div.className = "msg";
+    const when_str = when ? new Date(when).toLocaleTimeString() : "";
+    // Build with textContent, never innerHTML, so user input cannot inject HTML.
+    const who_el = document.createElement("span");
+    who_el.className = "who";
+    who_el.textContent = who;
+    const body_el = document.createElement("span");
+    body_el.textContent = ": " + text;
+    const when_el = document.createElement("span");
+    when_el.className = "when";
+    when_el.textContent = when_str;
+    div.append(who_el, body_el, when_el);
+  }
+  logEl.appendChild(div);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+function connect() {
+  const room = $("room").value.trim();
+  const name = $("name").value.trim();
+  if (!room || !name) { alert("room and name are required"); return; }
+
+  // Build the WebSocket URL from the same origin that served the page.
+  const scheme = location.protocol === "https:" ? "wss" : "ws";
+  const url = `${scheme}://${location.host}/ws?room=${encodeURIComponent(room)}&name=${encodeURIComponent(name)}`;
+
+  setStatus("connecting", "connecting...");
+  socket = new WebSocket(url);
+
+  socket.onopen = () => {
+    setStatus("open", `connected to #${room} as ${name}`);
+    $("text").disabled = false;
+    $("send").disabled = false;
+    $("text").focus();
+    addMessage({ system: true, text: `joined #${room} as ${name}` });
+  };
+
+  socket.onmessage = (event) => {
+    let env;
+    try { env = JSON.parse(event.data); } catch { return; }
+    if (env.type === "message") {
+      addMessage({ who: env.sender, text: env.text, when: env.timestamp });
+    } else if (env.type === "system") {
+      addMessage({ system: true, text: env.text });
+    } else if (env.type === "error") {
+      addMessage({ system: true, text: "error: " + env.text });
+    }
+  };
+
+  socket.onclose = (event) => {
+    setStatus("closed", "disconnected");
+    $("text").disabled = true;
+    $("send").disabled = true;
+    addMessage({ system: true, text: `disconnected (code ${event.code})` });
+  };
+
+  socket.onerror = () => addMessage({ system: true, text: "connection error" });
+}
+
+function send(text) {
+  if (!socket || socket.readyState !== WebSocket.OPEN) return;
+  const room = $("room").value.trim();
+  socket.send(JSON.stringify({ type: "chat", room, text }));
+}
+
+$("connect").addEventListener("click", connect);
+$("composer").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const input = $("text");
+  const text = input.value.trim();
+  if (!text) return;
+  send(text);
+  input.value = "";
+  input.focus();
+});
+</script>
+</body>
+</html>
