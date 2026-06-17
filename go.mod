@@ -17,3 +17,8 @@ go 1.23
 //   google.golang.org/protobuf                       // Phase 5b: protobuf runtime
 //   github.com/prometheus/client_golang              // Phase 6: metrics
 //   github.com/testcontainers/testcontainers-go      // tests: real infra
+
+require (
+	github.com/coder/websocket v1.8.14
+	github.com/google/uuid v1.6.0
+)

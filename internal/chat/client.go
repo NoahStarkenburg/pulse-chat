@@ -3,139 +3,125 @@ package chat
 import (
 	"context"
 	"log/slog"
+	"time"
+
+	"github.com/coder/websocket"
+	"github.com/coder/websocket/wsjson"
+	"github.com/google/uuid"
 )
 
-// Client represents one connected user — one WebSocket connection, one
-// browser tab. Each Client runs TWO goroutines for its lifetime:
-//
-//   - readPump:  reads messages from the WebSocket and forwards them to
-//                the Hub (or whatever handler is appropriate).
-//   - writePump: reads from the Client's outbound channel and writes to
-//                the WebSocket.
-//
-// =============================================================================
-// WHY TWO GOROUTINES (the most important Go concurrency lesson in this file)
-// =============================================================================
-//
-// The WebSocket library (`coder/websocket`) is safe to use from MULTIPLE
-// goroutines as long as you have one reader and one writer at a time.
-// Concurrent writers will corrupt the byte stream — you'd be interleaving
-// frames mid-message. Concurrent readers don't make sense either.
-//
-// So the rule is: one goroutine owns reads, one goroutine owns writes.
-// They communicate through an in-memory channel (the Client's `outbound`
-// channel) that the Hub pushes to and the writePump consumes.
-//
-// Picture the flow for sending a message:
-//
-//      Browser ── WS frame ──▶  readPump
-//                                   │
-//                                   ▼
-//                             Hub.Broadcast(msg)
-//                                   │
-//                  (Hub Run loop fans out to each Client's outbound chan)
-//                                   │
-//                                   ▼
-//                             other Client's writePump
-//                                   │
-//                                   ▼
-//                             ◀── WS frame ─── other Browser
-//
-// =============================================================================
-// YOUR TASK (Phase 1)
-// =============================================================================
-//
-// 1. Add fields to Client:
-//      - conn:      the *websocket.Conn (from coder/websocket)
-//      - room:      string (which room this client is in)
-//      - sender:    string (display name — Phase 1 can hardcode or accept
-//                   on join; real auth comes later)
-//      - outbound:  chan Envelope (buffered, e.g. cap 64). Closed by the
-//                   Hub when the client is unregistered.
-//      - hub:       *Hub (so the client can Register/Unregister itself)
-//      - logger:    *slog.Logger
-//
-// 2. Implement NewClient(conn, hub, room, sender, logger) *Client. It
-//    should create the outbound channel and return the struct. It should
-//    NOT register with the Hub or start the pumps — that's the caller's
-//    job, so that the wiring is explicit at the upgrade-handler site.
-//
-// 3. Implement readPump(ctx context.Context):
-//      - Loop: read a JSON message from the conn.
-//      - Unmarshal into an Envelope.
-//      - SERVER-STAMP the fields the client should not control: ID,
-//        Sender, Timestamp. Do this in the readPump, not later.
-//      - For TypeChat: hub.Broadcast(msg).
-//      - For other types: ignore for Phase 1 (we'll add /leave handling
-//        when room state is more sophisticated).
-//      - On ANY read error (including normal close): hub.Unregister(c)
-//        and return. The error is your signal to stop.
-//      - When this function returns, defer-close the conn.
-//
-// 4. Implement writePump(ctx context.Context):
-//      - Loop:
-//          - Select on c.outbound and ctx.Done().
-//          - If c.outbound is closed (the !ok case in a channel receive),
-//            return — the Hub has decided we're done.
-//          - Otherwise, marshal the Envelope to JSON and write it on the
-//            WebSocket.
-//      - On any write error: return. The readPump's next attempt will
-//        also fail and clean up.
-//
-// =============================================================================
-// PING / PONG (keep-alive)
-// =============================================================================
-//
-// Browsers and proxies will close idle WebSocket connections. To keep them
-// open, you send WebSocket *ping* frames periodically and expect a *pong*
-// back. `coder/websocket` exposes a Ping() method.
-//
-// For Phase 1 a 30-second ping interval is fine. Add a context-aware
-// ticker inside writePump that calls c.conn.Ping(ctx) every 30s. If the
-// ping fails or times out, the connection is dead — return from the pump.
-//
-// =============================================================================
-// BACKPRESSURE: what to do when outbound is full
-// =============================================================================
-//
-// The outbound channel is buffered. If the consumer (this client's
-// browser) is slow, the buffer fills. The Hub's broadcast case must NOT
-// block waiting for a slow client — that would freeze the whole chat.
-//
-// In Phase 1, the Hub's broadcast logic should:
-//
-//     select {
-//     case client.outbound <- msg:
-//         // sent
-//     default:
-//         // buffer full — client is too slow. Unregister and let them
-//         // reconnect. Log this event.
-//         h.Unregister(client)
-//     }
-//
-// This is one of those "the right thing is the obvious thing once you've
-// seen it" moments. Slow clients must not slow the system down.
+// Client owns a single WebSocket connection. It runs two goroutines for the
+// connection's lifetime: readPump (reads from the socket, forwards to the Hub)
+// and writePump (writes Hub messages to the socket). They are split because a
+// WebSocket is full-duplex, reads block indefinitely, and a connection must
+// have exactly one writer or concurrent frames corrupt the stream.
 type Client struct {
-	// TODO(phase-1): add fields per the comment above.
+	conn   *websocket.Conn
+	room   string // server-authoritative room
+	sender string // display name (Phase 1: query param; later: auth session)
+
+	// outbound is this client's delivery queue: the Hub pushes envelopes on and
+	// writePump drains them. The Hub closes it (once) to signal shutdown.
+	outbound chan Envelope
+
+	hub    *Hub
 	logger *slog.Logger
 }
 
-// NewClient constructs a Client. Caller is responsible for registering
-// it with the Hub and starting the read/write pumps.
-func NewClient(/* TODO(phase-1): conn, hub, room, sender, */ logger *slog.Logger) *Client {
-	return &Client{logger: logger}
+// outboundBuffer is the per-client queue depth. Large enough to ride out a
+// brief network stall, small enough that many clients fit in memory and a
+// genuinely slow client is dropped before it accumulates stale messages.
+const outboundBuffer = 64
+
+const (
+	// pingInterval is how often we probe an idle connection so a peer that
+	// vanished is detected and intermediaries do not kill the idle connection.
+	pingInterval = 30 * time.Second
+	// pingTimeout is how long we wait for a pong before declaring the peer dead.
+	pingTimeout = 10 * time.Second
+	// writeTimeout bounds a single write so a stuck socket cannot hang writePump.
+	writeTimeout = 10 * time.Second
+)
+
+// NewClient constructs a Client. Registering it with the Hub and starting the
+// pumps is left to the caller so the connection lifecycle stays explicit.
+func NewClient(conn *websocket.Conn, hub *Hub, room, sender string, logger *slog.Logger) *Client {
+	return &Client{
+		conn:     conn,
+		room:     room,
+		sender:   sender,
+		outbound: make(chan Envelope, outboundBuffer),
+		hub:      hub,
+		logger:   logger,
+	}
 }
 
-// readPump owns the WebSocket read side. Returns when the connection
-// errors or the context is cancelled.
+// readPump reads from the socket until the connection errors or ctx is
+// cancelled, then unregisters. The server overwrites every consequential field
+// so a client cannot forge identity, room, timestamp, or message ID.
 func (c *Client) readPump(ctx context.Context) {
-	// TODO(phase-1): implement per the file header.
-	_ = ctx
+	for {
+		var env Envelope
+		if err := wsjson.Read(ctx, c.conn, &env); err != nil {
+			c.hub.Unregister(c)
+			return
+		}
+
+		switch env.Type {
+		case TypeChat:
+			now := time.Now().UTC()
+			out := Envelope{
+				Type:      TypeMessage,
+				Room:      c.room,
+				Text:      env.Text, // the only field taken from the client
+				ID:        uuid.NewString(),
+				Sender:    c.sender,
+				Timestamp: &now,
+			}
+			c.hub.Broadcast(out)
+		default:
+			c.logger.Debug("ignoring non-chat message in phase 1", "type", env.Type)
+		}
+	}
 }
 
-// writePump owns the WebSocket write side. Returns when the outbound
-// channel is closed or the context is cancelled.
+// writePump writes to the socket until the outbound channel is closed, a write
+// or ping fails, or ctx is cancelled.
 func (c *Client) writePump(ctx context.Context) {
-	// TODO(phase-1): implement per the file header.
-	_ = ctx
+	ticker := time.NewTicker(pingInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case msg, ok := <-c.outbound:
+			if !ok {
+				// Hub closed our channel: we have been unregistered. Send a close
+				// frame so the peer sees a clean close rather than a dropped TCP
+				// connection.
+				_ = c.conn.Close(websocket.StatusNormalClosure, "")
+				return
+			}
+
+			writeCtx, cancel := context.WithTimeout(ctx, writeTimeout)
+			err := wsjson.Write(writeCtx, c.conn, msg)
+			cancel()
+			if err != nil {
+				c.hub.Unregister(c)
+				return
+			}
+
+		case <-ticker.C:
+			pingCtx, cancel := context.WithTimeout(ctx, pingTimeout)
+			err := c.conn.Ping(pingCtx)
+			cancel()
+			if err != nil {
+				c.hub.Unregister(c)
+				return
+			}
+
+		case <-ctx.Done():
+			_ = c.conn.Close(websocket.StatusGoingAway, "server shutting down")
+			return
+		}
+	}
 }
