@@ -1,8 +1,8 @@
-# Pulse Chat — frontend
+# Pulse Chat - frontend
 
 This directory will hold a minimal browser client for testing and
 demoing the chat. Phase 1 builds a single HTML page with a tiny bit of
-JavaScript that opens a WebSocket and renders messages — that's
+JavaScript that opens a WebSocket and renders messages - that's
 enough to verify end-to-end functionality.
 
 We deliberately avoid React / Vue / heavy frameworks here. The frontend
@@ -29,15 +29,15 @@ Served by the Go server at `GET /`. See `cmd/server/main.go` for the
 ## Why not Next.js / React?
 
 If after Phase 6 you want a polished portfolio frontend, a tasteful
-Next.js app deployed to Vercel is a fine addition — and it's a Conduit
+Next.js app deployed to Vercel is a fine addition - and it's a Conduit
 opportunity too. For Pulse Chat itself, the browser demo just needs to
 prove end-to-end. Don't let frontend complexity steal cycles from
 backend learning.
 
 ## Later additions (optional)
 
-- Presence indicator (Phase 4) — show who's currently in the room.
-- Flagged-message UI (Phase 5) — gray out / strike through.
-- Reconnect-with-history (stretch) — show last 50 messages on reconnect.
+- Presence indicator (Phase 4) - show who's currently in the room.
+- Flagged-message UI (Phase 5) - gray out / strike through.
+- Reconnect-with-history (stretch) - show last 50 messages on reconnect.
 - A separate "admin" page (Phase 6) consuming `/metrics` for a tiny
   in-browser dashboard.

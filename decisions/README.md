@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-This directory contains ADRs — short documents capturing significant
+This directory contains ADRs - short documents capturing significant
 architectural decisions, the alternatives considered, and the reasoning.
 
 ## Why ADRs?
@@ -11,12 +11,12 @@ Code shows *what* a system does. Tests show *whether* it works. ADRs show
 the choice. ADRs are how you remember.
 
 They're also a portfolio artifact. Recruiters who skim source code skip
-fast. Recruiters who read an `decisions/` directory linger — it's a
+fast. Recruiters who read an `decisions/` directory linger - it's a
 signal of senior thinking.
 
 ## Format
 
-We use the lightweight [MADR](https://adr.github.io/madr/) format —
+We use the lightweight [MADR](https://adr.github.io/madr/) format -
 each ADR is a single markdown file with sections for context, decision,
 alternatives, and consequences.
 
@@ -25,10 +25,10 @@ sequence number. Never reuse numbers; never reorder. ADRs are append-only.
 
 ## Status lifecycle
 
-- **Proposed** — written, not yet approved.
-- **Accepted** — current decision; this is what the code reflects.
-- **Superseded by ADR-XXXX** — overruled by a later ADR. Don't delete; link.
-- **Deprecated** — no longer relevant, but kept for history.
+- **Proposed** - written, not yet approved.
+- **Accepted** - current decision; this is what the code reflects.
+- **Superseded by ADR-XXXX** - overruled by a later ADR. Don't delete; link.
+- **Deprecated** - no longer relevant, but kept for history.
 
 ## How to write one
 

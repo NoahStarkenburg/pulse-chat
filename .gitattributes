@@ -1,7 +1,7 @@
 # Normalize line endings across platforms.
 #
 # Why this matters: on Windows, git's default `core.autocrlf` may convert
-# LF → CRLF on checkout. Without this file, contributors on Windows and
+# LF -> CRLF on checkout. Without this file, contributors on Windows and
 # contributors on macOS/Linux would see different bytes on disk for the
 # same file, breaking tooling that's strict about line endings (golangci-
 # lint, shfmt, etc.) and producing noisy diffs.

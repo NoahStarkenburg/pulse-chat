@@ -1,4 +1,4 @@
-# Pulse Chat — common commands.
+# Pulse Chat - common commands.
 #
 # `just` is a modern, cross-platform alternative to `make`. Install it via:
 #   winget install Casey.Just     (Windows)
