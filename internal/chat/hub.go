@@ -5,134 +5,154 @@ import (
 	"log/slog"
 )
 
-// Hub is the broker between connected Clients within a single server
-// process. It owns the set of clients per room and is the only goroutine
-// permitted to mutate that set.
+// Hub is the in-process broker between connected Clients. It owns the set of
+// clients per room and is the only goroutine allowed to mutate that set.
 //
-// =============================================================================
-// THE HUB PATTERN — what you are about to build (and why)
-// =============================================================================
-//
-// Problem: many goroutines (one per WebSocket connection) need to share a
-// data structure: "which clients are in which rooms?" Naively, you'd protect
-// that map with a sync.Mutex. That works but invites subtle bugs — every
-// caller has to remember to lock, you risk holding the lock across a slow
-// network write, and you have to reason about lock ordering.
-//
-// The Hub pattern sidesteps the lock entirely. *One* goroutine owns the map.
-// Other goroutines send it requests over channels:
-//
-//   - register:   "here is a new Client, add it to room X"
-//   - unregister: "this Client is gone, remove it"
-//   - broadcast:  "send this message to everyone in room X"
-//
-// The Hub's Run loop reads from these channels in a select{} and applies
-// changes. Because only Run() touches the map, there is no data race, no
-// locking, and no ambiguity about who can modify what.
-//
-// This is THE canonical Go concurrency pattern: "share memory by
-// communicating." Memorize it. You will see it everywhere.
-//
-// =============================================================================
-// YOUR TASK (Phase 1)
-// =============================================================================
-//
-// 1. Add fields to Hub:
-//      - rooms: a map[string]map[*Client]struct{} (room -> set of clients)
-//      - register chan *Client       (clients ask to join here)
-//      - unregister chan *Client     (clients leave here)
-//      - broadcast chan Envelope     (fan-out messages here)
-//      - logger *slog.Logger
-//
-//    Why struct{} for the inner map value? It's a "set" — we only care
-//    whether a key is present. struct{} consumes zero bytes (Go optimizes
-//    it). map[*Client]bool would work but signals "the bool means
-//    something" which it doesn't.
-//
-// 2. Implement NewHub() to return a Hub with channels initialized.
-//
-//    Note: use *buffered* channels for broadcast (e.g. cap 256) so a slow
-//    sender does not block the senders. The Hub's Run loop is the consumer;
-//    if it falls behind, the buffer absorbs short bursts.
-//
-// 3. Implement Run(ctx context.Context). It must:
-//      - Loop forever inside a `for { select { ... } }`.
-//      - Handle the four cases: register / unregister / broadcast / ctx.Done.
-//      - On ctx.Done, exit cleanly. Closing client connections is the
-//        caller's job (Run just stops managing the rooms map).
-//      - Be the *only* place rooms map is mutated.
-//
-// 4. Implement Register / Unregister / Broadcast methods that just send on
-//    the corresponding channels. These are the public API; the channels
-//    themselves should be unexported.
-//
-// =============================================================================
-// GOTCHAS YOU WILL HIT
-// =============================================================================
-//
-//   * If you call Hub.Broadcast() from inside the Hub's own goroutine, you
-//     will deadlock — Run can't read from the channel while it's busy
-//     sending to it. Solution: Run never sends to its own channels. It only
-//     reads from them.
-//
-//   * When broadcasting, do *not* write to client connections directly.
-//     The Hub does not own those connections. Instead, push the Envelope
-//     onto each Client's outbound channel and let each Client's writePump
-//     deliver it. (See client.go.) This keeps the Hub fast — it never
-//     blocks on a slow network write.
-//
-//   * If a Client's outbound channel is full, that client is slow. You have
-//     two choices: (a) drop the message for that client, (b) disconnect the
-//     client. For Phase 1, choose (b) and put the unregister logic right in
-//     the broadcast case.
-//
-//   * Goroutines must have a known stop condition. Run exits when ctx is
-//     done. Document this — future-you will thank you.
-//
-// =============================================================================
+// Rather than guarding the rooms map with a mutex, the Hub gives ownership to a
+// single goroutine (Run) and has everything else communicate with it over
+// channels. Concurrent map access becomes impossible by construction, so there
+// is no lock to forget and no risk of holding one across a slow network write.
 type Hub struct {
-	// TODO(phase-1): add fields per the comment above.
+	// rooms maps a room name to the set of clients in it. The inner map uses
+	// struct{} values because only key presence matters. Only Run touches it.
+	rooms map[string]map[*Client]struct{}
+
+	// Inbound channels. Other goroutines send on them; Run is the sole receiver.
+	register   chan *Client
+	unregister chan *Client
+	broadcast  chan Envelope
+
+	// done is closed when Run returns so Register/Unregister/Broadcast can give
+	// up instead of blocking forever on channels no one is receiving from.
+	done chan struct{}
+
 	logger *slog.Logger
 }
 
-// NewHub constructs an unstarted Hub. Call Run() (in a goroutine) to start it.
+// broadcastBuffer sizes the single server-wide broadcast channel. It absorbs
+// bursts when many clients send before Run drains them. Tune under load.
+const broadcastBuffer = 256
+
+// NewHub constructs an unstarted Hub. Call Run (in a goroutine) to start it.
 func NewHub(logger *slog.Logger) *Hub {
-	// TODO(phase-1): initialize the channels and the rooms map.
 	return &Hub{
-		logger: logger,
+		rooms: make(map[string]map[*Client]struct{}),
+		// register/unregister are unbuffered: join and leave are rare and should
+		// rendezvous with Run directly. broadcast is buffered to absorb bursts.
+		register:   make(chan *Client),
+		unregister: make(chan *Client),
+		broadcast:  make(chan Envelope, broadcastBuffer),
+		done:       make(chan struct{}),
+		logger:     logger,
 	}
 }
 
-// Run is the Hub's main loop. It owns the rooms map and is the only
-// goroutine permitted to mutate it. Returns when ctx is cancelled.
-//
-// Convention: this is a blocking call — invoke it in a goroutine:
-//
-//	go hub.Run(ctx)
+// Run owns the rooms map and is the only goroutine permitted to mutate it. It
+// returns when ctx is cancelled. Invoke it in a goroutine: go hub.Run(ctx).
 func (h *Hub) Run(ctx context.Context) {
-	// TODO(phase-1): the select-loop described in the file header.
-	_ = ctx
+	defer close(h.done)
+
+	for {
+		select {
+		case c := <-h.register:
+			h.addClient(c)
+		case c := <-h.unregister:
+			h.removeClient(c)
+		case msg := <-h.broadcast:
+			h.fanout(msg)
+		case <-ctx.Done():
+			// Close every client's outbound channel so each writePump exits and
+			// closes its socket. Run only releases ownership of the map.
+			h.closeAll()
+			return
+		}
+	}
 }
 
-// Register asks the Hub to add a client to its room. Safe to call from
-// any goroutine.
+// addClient inserts c into its room, creating the room set on first use.
+func (h *Hub) addClient(c *Client) {
+	room := h.rooms[c.room]
+	if room == nil {
+		room = make(map[*Client]struct{})
+		h.rooms[c.room] = room
+	}
+	room[c] = struct{}{}
+	h.logger.Info("client registered", "room", c.room, "sender", c.sender, "room_size", len(room))
+}
+
+// removeClient deletes c from its room and closes its outbound channel.
+//
+// It must be idempotent: a client can be unregistered by its readPump on
+// disconnect and dropped by a concurrent fan-out at the same time. Closing an
+// already-closed channel panics, so we return early if c is already gone.
+func (h *Hub) removeClient(c *Client) {
+	room := h.rooms[c.room]
+	if room == nil {
+		return
+	}
+	if _, ok := room[c]; !ok {
+		return
+	}
+	delete(room, c)
+	close(c.outbound)
+
+	if len(room) == 0 {
+		delete(h.rooms, c.room)
+	}
+	h.logger.Info("client unregistered", "room", c.room, "sender", c.sender)
+}
+
+// fanout delivers msg to every client in msg.Room.
+func (h *Hub) fanout(msg Envelope) {
+	room := h.rooms[msg.Room]
+	if room == nil {
+		return
+	}
+	for c := range room {
+		// Non-blocking send. Blocking on one slow client would stall fan-out to
+		// the whole room, so a client whose buffer is full is dropped instead.
+		select {
+		case c.outbound <- msg:
+		default:
+			h.logger.Warn("dropping slow client: outbound buffer full",
+				"room", msg.Room, "sender", c.sender)
+			h.removeClient(c)
+		}
+	}
+}
+
+// closeAll closes every client's outbound channel during shutdown.
+func (h *Hub) closeAll() {
+	for name, room := range h.rooms {
+		for c := range room {
+			close(c.outbound)
+		}
+		delete(h.rooms, name)
+	}
+	h.logger.Info("hub shutting down: closed all client channels")
+}
+
+// Register adds a client to its room. Safe to call from any goroutine.
 func (h *Hub) Register(c *Client) {
-	// TODO(phase-1): send on the register channel.
-	_ = c
+	select {
+	case h.register <- c:
+	case <-h.done:
+	}
 }
 
-// Unregister asks the Hub to remove a client. Safe to call from any
-// goroutine. Idempotent — calling Unregister twice for the same client
-// MUST NOT panic.
+// Unregister removes a client. Safe to call from any goroutine and idempotent.
 func (h *Hub) Unregister(c *Client) {
-	// TODO(phase-1): send on the unregister channel.
-	_ = c
+	select {
+	case h.unregister <- c:
+	case <-h.done:
+	}
 }
 
-// Broadcast fans out a message to every client in the message's Room.
-// Safe to call from any goroutine. Non-blocking from the caller's
-// perspective (it enqueues onto a buffered channel).
+// Broadcast fans a message out to every client in its room. Safe to call from
+// any goroutine.
 func (h *Hub) Broadcast(msg Envelope) {
-	// TODO(phase-1): send on the broadcast channel.
-	_ = msg
+	select {
+	case h.broadcast <- msg:
+	case <-h.done:
+	}
 }
