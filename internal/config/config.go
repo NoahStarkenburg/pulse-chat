@@ -1,8 +1,8 @@
 // Package config loads runtime configuration from environment variables into
 // a single, immutable Config struct at startup.
 //
-// Why one struct? Because configuration is a *boundary concern*. Code that
-// runs after startup should never read environment variables directly — it
+// Why one struct? Because configuration is a boundary concern. Code that
+// runs after startup should never read environment variables directly; it
 // should receive whatever it needs through the Config (or a slice of it).
 // This makes the program's configuration surface explicit and testable.
 //
@@ -21,15 +21,15 @@ import (
 
 // Config holds everything the server needs to start. Populate via Load().
 //
-// Convention: every field has a corresponding PULSE_* env var. The Load()
-// function is the *only* place these env vars are read. After startup, pass
-// Config (or a sub-struct) by value through your dependency wiring.
+// Every field has a corresponding PULSE_* env var, and Load is the only place
+// these env vars are read. After startup, pass Config (or a sub-struct) by
+// value through your dependency wiring.
 type Config struct {
 	Server ServerConfig
 	Log    LogConfig
 
 	// Future phases will add: Postgres, Redis, RabbitMQ, AI. Keeping the
-	// struct flat-but-grouped (e.g. `Server.Addr`) makes the call sites
+	// struct flat-but-grouped (e.g. Server.Addr) makes the call sites
 	// clearer than one giant flat struct.
 }
 
@@ -47,9 +47,9 @@ type LogConfig struct {
 	Format string     // "text" or "json"
 }
 
-// Load reads environment variables and returns a fully populated Config.
-// On error, it returns a non-nil error explaining which variable was wrong —
-// fail-fast at startup is better than mysterious runtime behavior.
+// Load reads environment variables and returns a fully populated Config. On
+// error it returns a non-nil error naming the variable that was wrong;
+// failing fast at startup beats mysterious runtime behavior.
 func Load() (Config, error) {
 	cfg := Config{
 		Server: ServerConfig{
@@ -70,8 +70,7 @@ func Load() (Config, error) {
 	return cfg, nil
 }
 
-// validate runs basic sanity checks. Catching bad config at startup beats
-// debugging it in production at 2am.
+// validate runs basic sanity checks so bad config is caught at startup.
 func (c Config) validate() error {
 	if c.Server.Addr == "" {
 		return fmt.Errorf("PULSE_SERVER_ADDR cannot be empty")
@@ -88,11 +87,9 @@ func (c Config) validate() error {
 	return nil
 }
 
-// --- helpers -----------------------------------------------------------------
-//
-// These wrappers around os.Getenv exist so the Load() body reads cleanly
-// and we don't repeat default-value boilerplate. Keep them unexported —
-// nothing outside this package should be parsing env vars directly.
+// Helpers around os.Getenv keep Load readable and the default-value handling in
+// one place. They are unexported so nothing outside this package parses env
+// vars directly.
 
 func envString(key, def string) string {
 	if v := os.Getenv(key); v != "" {
@@ -108,10 +105,9 @@ func envDuration(key string, def time.Duration) time.Duration {
 	}
 	d, err := time.ParseDuration(v)
 	if err != nil {
-		// We deliberately swallow this and return the default. A future
-		// improvement would be to surface the parse error from Load() —
-		// for now, defaulting silently is fine because validate() will
-		// catch downstream symptoms.
+		// Fall back to the default on a parse error. validate runs afterward and
+		// will catch downstream symptoms; surfacing the parse error from Load is
+		// a possible future improvement.
 		return def
 	}
 	return d
