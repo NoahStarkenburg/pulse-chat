@@ -37,9 +37,12 @@ func TestWebSocket_EchoToSender(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	conn, _, err := websocket.Dial(ctx, base+"/ws?room=general&name=alice", nil)
+	conn, resp, err := websocket.Dial(ctx, base+"/ws?room=general&name=alice", nil)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
+	}
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
 	}
 	defer conn.Close(websocket.StatusNormalClosure, "")
 
@@ -82,9 +85,12 @@ func TestWebSocket_TwoClientsSameRoom(t *testing.T) {
 
 	dial := func(name string) *websocket.Conn {
 		t.Helper()
-		c, _, err := websocket.Dial(ctx, base+"/ws?room=general&name="+name, nil)
+		c, resp, err := websocket.Dial(ctx, base+"/ws?room=general&name="+name, nil)
 		if err != nil {
 			t.Fatalf("dial %s: %v", name, err)
+		}
+		if resp != nil && resp.Body != nil {
+			_ = resp.Body.Close()
 		}
 		t.Cleanup(func() { c.Close(websocket.StatusNormalClosure, "") })
 		return c
@@ -139,7 +145,10 @@ func TestWebSocket_MissingParamsRejected(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	conn, _, err := websocket.Dial(ctx, base+"/ws", nil)
+	conn, resp, err := websocket.Dial(ctx, base+"/ws", nil)
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
 	if err == nil {
 		conn.Close(websocket.StatusNormalClosure, "")
 		t.Fatal("expected dial to fail without room/name, but it succeeded")

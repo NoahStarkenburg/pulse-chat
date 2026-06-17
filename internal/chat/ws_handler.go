@@ -35,7 +35,7 @@ func NewWebSocketHandler(hub *Hub, logger *slog.Logger) http.Handler {
 		}
 		// Release the connection on every exit path. Harmless if writePump
 		// already closed it gracefully.
-		defer conn.CloseNow()
+		defer func() { _ = conn.CloseNow() }()
 
 		client := NewClient(conn, hub, room, name, logger)
 		hub.Register(client)
