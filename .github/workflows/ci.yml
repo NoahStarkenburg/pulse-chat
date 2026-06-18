@@ -66,5 +66,5 @@ jobs:
 
       - name: Build all packages
         # `go build ./...` confirms every package compiles. The output is
-        # discarded — we only care that the build succeeds.
+        # discarded - we only care that the build succeeds.
         run: go build ./...

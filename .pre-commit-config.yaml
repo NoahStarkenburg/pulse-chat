@@ -1,4 +1,4 @@
-# Pre-commit hooks — checks that run automatically before `git commit`.
+# Pre-commit hooks - checks that run automatically before `git commit`.
 #
 # Why bother when we have CI? CI catches issues *after* you push. Pre-commit
 # catches them in the 5 seconds before the commit is even created. The

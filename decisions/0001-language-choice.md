@@ -10,7 +10,7 @@ Pulse Chat is a learning project intended to teach the fundamentals of
 real-time distributed systems: WebSocket protocol, Redis Pub/Sub for
 horizontal scaling, durable work queues (RabbitMQ), worker patterns,
 observability, and (later) gRPC service decomposition. The success
-criterion is depth of understanding — being able to explain how each
+criterion is depth of understanding - being able to explain how each
 component works at the protocol level, not just how to call a library.
 
 A secondary goal is to produce a credible portfolio artifact for
@@ -34,7 +34,7 @@ Implement the project in Go.
   bindings, prefetch) are hidden by MassTransit. WebSocket frames are
   invisible behind SignalR's hub abstraction. The learning is "how to
   configure the framework," not "how the protocol works."
-- **Why not:** Conflicts with the primary goal — depth of protocol
+- **Why not:** Conflicts with the primary goal - depth of protocol
   understanding.
 
 ### Rust with tokio
@@ -49,7 +49,7 @@ Implement the project in Go.
 ### Node.js / TypeScript
 - **Pros:** WebSocket libraries (`ws`) are minimal and direct.
 - **Cons:** Single-threaded event loop makes worker patterns awkward
-  (must spawn child processes for parallelism — a tangential lesson).
+  (must spawn child processes for parallelism - a tangential lesson).
   npm ecosystem instability adds noise. No strong career alignment
   for Noah's target roles.
 - **Why not:** Worker model is awkward; misalignment with target stack.
@@ -69,15 +69,15 @@ Implement the project in Go.
   WebSocket frames, raw Redis commands are all visible in the code.
 - Goroutines + channels map cleanly to the Hub pattern, pump pattern,
   and worker pool.
-- Single static binary — trivial deployment story.
+- Single static binary - trivial deployment story.
 - Strong tooling: `go test`, `go vet`, gofmt, `golangci-lint`,
   testcontainers-go.
-- Alignment with Conduit (Noah's flagship portfolio project) — skills
+- Alignment with Conduit (Noah's flagship portfolio project) - skills
   compound across projects.
 
 **Harder:**
 - More boilerplate than the .NET equivalent. Error handling is verbose.
-- No batteries-included messaging framework — outbox, retries,
+- No batteries-included messaging framework - outbox, retries,
   saga-style coordination must be hand-built (which is the point, but
   costs time).
 
@@ -88,7 +88,7 @@ Implement the project in Go.
 ## Notes
 
 Polyglot (Go for the gateway + .NET for workers) was explicitly
-considered and rejected — interop friction (proto/JSON contracts in two
+considered and rejected - interop friction (proto/JSON contracts in two
 languages, two toolchains, two debugging environments) adds learning
 overhead in a dimension unrelated to the project's purpose. See the
 conversation that produced this ADR for the full rationale.

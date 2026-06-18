@@ -2,7 +2,7 @@
 #
 # Philosophy: strict enough to catch real bugs and shape good habits,
 # pragmatic enough to not block learning. Lint findings should teach
-# you something — when one fires, read the underlying rule before silencing.
+# you something - when one fires, read the underlying rule before silencing.
 #
 # Run locally:    golangci-lint run
 # Auto-fix some:  golangci-lint run --fix
@@ -23,13 +23,13 @@ linters:
     - typecheck      # Type-checks the code (mandatory; explicit here).
 
     # --- Style (enforce conventions) -------------------------------------
-    # FORMATTING LINTERS — temporarily disabled. Re-enable after running
+    # FORMATTING LINTERS - temporarily disabled. Re-enable after running
     # `just fix-fmt` once Go is installed locally. They flag the scaffold's
     # hand-written doc-comment lists (Go 1.19+ has strict canonical
     # indentation for numbered/bulleted lists in comments, which gofmt
     # auto-normalizes via -w).
     # - gofmt        # Standard formatting.
-    # - gofumpt      # Stricter gofmt — eliminates style debates.
+    # - gofumpt      # Stricter gofmt - eliminates style debates.
     # - goimports    # Import grouping/ordering AND gofmt's comment rules.
     - misspell       # English spelling in comments and strings.
     - revive         # Style + naming + complexity. Replaces golint.
@@ -67,9 +67,10 @@ issues:
         - errcheck
         - gosec
         - forbidigo
+        - bodyclose # websocket.Dial's response body is owned by the library
 
     # internal/chat/* contains scaffold methods (readPump, writePump, etc.)
-    # that are intentionally not yet wired up — Phase 1 implements them.
+    # that are intentionally not yet wired up - Phase 1 implements them.
     # Once Phase 1 lands and these are used, remove this exclude.
     - path: internal/chat/.*\.go
       linters:
@@ -82,6 +83,11 @@ linters-settings:
       - fmt.Fprintln
       - fmt.Fprint
       - (net/http.ResponseWriter).Write
+      - (*github.com/coder/websocket.Conn).CloseNow
+
+  exhaustive:
+    # A default case is treated as handling the remaining enum values.
+    default-signifies-exhaustive: true
 
   goimports:
     local-prefixes: github.com/NoahStarkenburg/pulse-chat

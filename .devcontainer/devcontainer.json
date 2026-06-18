@@ -1,4 +1,4 @@
-// VS Code Dev Container — opens this repo in a containerized Go
+// VS Code Dev Container - opens this repo in a containerized Go
 // environment so you get the same setup every time, regardless of what's
 // installed on your host machine.
 //
@@ -7,7 +7,7 @@
 //
 // Why bother?
 //   - Eliminates "works on my machine." The container is reproducible.
-//   - You don't need Go installed on Windows — the container has it.
+//   - You don't need Go installed on Windows - the container has it.
 //   - Postgres / Redis / RabbitMQ are reachable directly inside the
 //     container (when you run `just up`).
 //

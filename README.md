@@ -2,7 +2,7 @@
 
 A horizontally-scalable, real-time multi-room chat system with AI-powered
 moderation. Built in Go from first principles to learn how WebSockets, Redis
-Pub/Sub, RabbitMQ, and durable background workers actually work — protocol-by-
+Pub/Sub, RabbitMQ, and durable background workers actually work - protocol-by-
 protocol, not framework-by-framework.
 
 This is a learning project built in public. The architecture, phasing, and
@@ -18,12 +18,12 @@ teach you. This one doesn't:
   includes test scaffolding and an explicit "tests are deliverables"
   checklist.
 - **Deliberate failure experiments per phase.** Kill the worker, drop
-  Redis, blow up Postgres — the breaking is the lesson.
+  Redis, blow up Postgres - the breaking is the lesson.
 - **Self-quiz at the end of every phase.** If you can't answer the
   questions in your own words, the phase isn't done.
-- **ADRs (Architecture Decision Records)** document *why* — see
+- **ADRs (Architecture Decision Records)** document *why* - see
   [`decisions/`](./decisions/).
-- **Resilience patterns are first-class** — timeouts, retries, circuit
+- **Resilience patterns are first-class** - timeouts, retries, circuit
   breakers, idempotency, DLQs are introduced phase-by-phase, not
   retrofitted.
 - **Live deploy from Phase 1.** A public URL on Fly.io as a Phase 1
@@ -70,7 +70,7 @@ teach you. This one doesn't:
 ```
 
 **Hot path** (sending a message):
-1. Browser → WebSocket → API server.
+1. Browser -> WebSocket -> API server.
 2. API server inserts the message into Postgres (source of truth).
 3. API server `PUBLISH room:{id}` on Redis. *Every* API instance subscribed to
    that room receives the message and pushes it to its connected clients.
@@ -78,7 +78,7 @@ teach you. This one doesn't:
 
 **Cold path** (background work):
 5. A worker pops the `moderate` job, calls the AI API, decides verdict.
-6. Worker writes the verdict to Postgres + publishes `room:{id}` on Redis →
+6. Worker writes the verdict to Postgres + publishes `room:{id}` on Redis ->
    browsers see the message updated in real time.
 
 The worker never speaks to clients directly. Redis Pub/Sub is the bridge
@@ -134,7 +134,7 @@ rationale and `learning-notes/concepts/grpc.md` for the reading.
 | `golangci-lint`  | latest  | `go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest` |
 
 Once Go is on PATH, run `go version` to confirm. The Phase 1 work needs only
-Go and a browser — Docker is for Phase 2 onward.
+Go and a browser - Docker is for Phase 2 onward.
 
 ## Quick start
 
@@ -172,7 +172,7 @@ pulse-chat/
 │   │   └── main.go
 │   ├── worker/                 # Queue consumer binary (Phase 5)
 │   └── moderation-service/     # gRPC service (Phase 5b stretch)
-├── internal/                   # Private packages — not importable by other modules
+├── internal/                   # Private packages - not importable by other modules
 │   ├── chat/                   # Hub, Client, message types (Phase 1)
 │   ├── config/                 # Env parsing, single Config struct
 │   ├── auth/                   # Sessions, middleware, password hashing (Phase 1.5)
@@ -182,7 +182,7 @@ pulse-chat/
 │   └── moderation/             # Moderation logic shared by worker + service (Phase 5/5b)
 ├── proto/                      # .proto schemas (Phase 5b)
 ├── migrations/                 # SQL migrations (Phase 2+)
-├── frontend/                   # Browser client (HTML + JS) — Phase 1+
+├── frontend/                   # Browser client (HTML + JS) - Phase 1+
 ├── loadtest/                   # k6 load test scripts (Phase 6+)
 ├── decisions/                  # Architecture Decision Records (ADRs)
 ├── deploy/
@@ -205,7 +205,7 @@ pulse-chat/
 ├── README.md                   # You are here
 ├── CONTRIBUTING.md             # Workflow + self-review checklist
 ├── LICENSE                     # MIT
-└── learning-notes/             # gitignored — your personal notes & deep dives
+└── learning-notes/             # gitignored - your personal notes & deep dives
 ```
 
 Why `internal/`? Anything inside `internal/` cannot be imported by code outside
@@ -251,9 +251,9 @@ PR template lives in `.github/pull_request_template.md`.
 ### CI
 
 GitHub Actions runs on every PR and push to `main`:
-1. **Lint** — `golangci-lint run` with the config in `.golangci.yml`.
-2. **Test** — `go test ./...` (will skip if no test files yet).
-3. **Build** — `go build ./...` to confirm the module compiles.
+1. **Lint** - `golangci-lint run` with the config in `.golangci.yml`.
+2. **Test** - `go test ./...` (will skip if no test files yet).
+3. **Build** - `go build ./...` to confirm the module compiles.
 
 A red CI run blocks merge. Fix the underlying issue; don't skip it.
 
@@ -280,7 +280,7 @@ them, fix the code.
    lose messages.
 
 6. **Health endpoints.** `/healthz` (am I running?) and `/readyz` (can I serve
-   traffic — i.e. dependencies are reachable?).
+   traffic - i.e. dependencies are reachable?).
 
 7. **Integration tests use real infra** via `testcontainers-go`. Mocks lie.
 
@@ -308,7 +308,7 @@ them, fix the code.
 
 ## Learning notes
 
-The `learning-notes/` folder is gitignored — that's your personal scratch
+The `learning-notes/` folder is gitignored - that's your personal scratch
 space. Each phase has a corresponding `phase-N-*.md` file pre-populated with
 prompts, deliverables, and gotchas. The `concepts/` subfolder is for deep
 dives on individual topics (the WebSocket protocol, Go concurrency, Pub/Sub
@@ -332,4 +332,4 @@ rules, commit conventions, and self-review checklist.
 
 ## License
 
-MIT — see [`LICENSE`](./LICENSE).
+MIT - see [`LICENSE`](./LICENSE).
