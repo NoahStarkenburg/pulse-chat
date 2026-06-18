@@ -1,13 +1,5 @@
-// This file exists to demonstrate the Go testing patterns you'll use
-// everywhere in this project. Read it before writing your first test in
-// Phase 1 — most patterns generalize.
-//
-// Topics demonstrated here:
-//   - Table-driven tests (the Go idiom — read about it in Effective Go)
-//   - t.Run subtests for grouping related cases
-//   - Setup helpers
-//   - Testing env-var-driven code with t.Setenv (auto-cleanup)
-//   - Asserting both happy path and validation errors
+// Tests for config loading: defaults, environment overrides, validation
+// errors, and the documented fallback when a duration fails to parse.
 
 package config
 
@@ -18,9 +10,8 @@ import (
 )
 
 func TestLoad_Defaults(t *testing.T) {
-	// t.Setenv is a Go 1.17+ helper that sets an env var and automatically
-	// restores it after the test. NEVER use os.Setenv in tests — it leaks
-	// across tests and creates non-deterministic failures.
+	// t.Setenv sets an env var and restores it after the test. Using os.Setenv
+	// in tests leaks across tests and creates non-deterministic failures.
 
 	// Clear any inherited vars so this test exercises true defaults.
 	t.Setenv("PULSE_SERVER_ADDR", "")
@@ -33,8 +24,8 @@ func TestLoad_Defaults(t *testing.T) {
 		t.Fatalf("Load() returned error on defaults: %v", err)
 	}
 
-	// Assert defaults match what the docs / .env.example claim.
-	// If a default changes, this test forces you to update both at once.
+	// Defaults must match what the docs and .env.example claim; if one changes,
+	// this test forces updating both at once.
 	if cfg.Server.Addr != ":8080" {
 		t.Errorf("Addr: got %q, want %q", cfg.Server.Addr, ":8080")
 	}
@@ -50,9 +41,6 @@ func TestLoad_Defaults(t *testing.T) {
 }
 
 func TestLoad_FromEnv(t *testing.T) {
-	// Table-driven test — the Go idiom. Each row is a test case. The
-	// benefit: adding a case is one row of data, not a copy-pasted block.
-
 	tests := []struct {
 		name    string
 		envKey  string
@@ -99,9 +87,8 @@ func TestLoad_FromEnv(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		// t.Run nests each case as a subtest. Benefits: failures point to
-		// the exact case ("TestLoad_FromEnv/invalid_log_format_rejected"),
-		// and you can run a single case with `go test -run` filtering.
+		// Each case is a subtest so failures name the exact case and a single
+		// case can be run with go test -run.
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv(tc.envKey, tc.envVal)
 
@@ -120,11 +107,10 @@ func TestLoad_FromEnv(t *testing.T) {
 	}
 }
 
-// TestLoad_BadDuration_FallsBackToDefault documents existing behavior:
-// if a duration env var fails to parse, Load() silently uses the default
-// rather than erroring out. This is intentional (see comments in config.go)
-// but is the kind of behavior you want PINNED with a test — so if a future
-// "improvement" changes it, you find out immediately.
+// TestLoad_BadDuration_FallsBackToDefault pins existing behavior: a duration
+// env var that fails to parse falls back to the default rather than erroring.
+// This is intentional (see config.go), so the test guards against a future
+// change silently breaking it.
 func TestLoad_BadDuration_FallsBackToDefault(t *testing.T) {
 	t.Setenv("PULSE_SERVER_READ_TIMEOUT", "definitely-not-a-duration")
 

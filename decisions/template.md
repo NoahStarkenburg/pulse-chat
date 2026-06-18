@@ -7,13 +7,13 @@
 ## Context
 
 What is the issue motivating this decision? What's the situation in which
-we're choosing? Be concrete — include constraints, deadlines, and what
+we're choosing? Be concrete - include constraints, deadlines, and what
 problem we're solving.
 
 ## Decision
 
 State the decision clearly in one or two sentences. Active voice. No
-hedging — if you decide later it was wrong, that's a new ADR superseding
+hedging - if you decide later it was wrong, that's a new ADR superseding
 this one.
 
 ## Alternatives considered

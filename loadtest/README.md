@@ -3,7 +3,7 @@
 Pulse Chat claims horizontal scalability after Phase 3. This directory
 holds the scripts that *prove* that claim with real numbers.
 
-We use [k6](https://k6.io/) — a Go-based load testing tool with a
+We use [k6](https://k6.io/) - a Go-based load testing tool with a
 JavaScript scripting API. It handles WebSocket connections natively,
 which most load testers don't.
 
@@ -28,7 +28,7 @@ A `websocket-fanout.js` script that:
 Metrics to capture and put in the README:
 
 - Concurrent connections sustained.
-- p50 / p95 / p99 fanout latency (send → receive on a different client).
+- p50 / p95 / p99 fanout latency (send -> receive on a different client).
 - CPU / memory of each server instance under load.
 
 ## Phase 5 deliverable
