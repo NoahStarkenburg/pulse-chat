@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/NoahStarkenburg/pulse-chat/internal/auth"
 	"github.com/NoahStarkenburg/pulse-chat/internal/chat"
 	"github.com/NoahStarkenburg/pulse-chat/internal/config"
 )
@@ -58,6 +59,27 @@ func run() error {
 
 	mux := http.NewServeMux()
 
+	// Auth: in-memory user and session stores for Phase 1.5 (Phase 2 promotes
+	// them to Postgres).
+	users := auth.NewUserStore()
+	sessions := auth.NewSessionStore()
+	authHandlers := auth.NewHandlers(users, sessions, logger, cfg.Server.CookieSecure)
+	requireAuth := auth.RequireAuth(sessions)
+
+	// resolveSender turns the authenticated user ID (placed in the request
+	// context by requireAuth) into the display name the chat stamps as sender.
+	resolveSender := func(r *http.Request) (string, bool) {
+		userID, ok := auth.UserIDFromContext(r.Context())
+		if !ok {
+			return "", false
+		}
+		u, err := users.ByID(userID)
+		if err != nil {
+			return "", false
+		}
+		return u.Username, true
+	}
+
 	// /healthz reports the process is alive; no dependency checks.
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("ok"))
@@ -69,7 +91,13 @@ func run() error {
 		_, _ = w.Write([]byte("ok"))
 	})
 
-	mux.Handle("GET /ws", chat.NewWebSocketHandler(hub, logger))
+	mux.HandleFunc("POST /signup", authHandlers.Signup)
+	mux.HandleFunc("POST /login", authHandlers.Login)
+	mux.HandleFunc("POST /logout", authHandlers.Logout)
+	mux.Handle("GET /me", requireAuth(http.HandlerFunc(authHandlers.Me)))
+
+	// /ws requires a valid session; the sender comes from it, not the URL.
+	mux.Handle("GET /ws", requireAuth(chat.NewWebSocketHandler(hub, logger, resolveSender)))
 
 	// Serve the browser test page. http.Dir is relative to the working
 	// directory, so run from the repo root. In production this belongs on a CDN.
