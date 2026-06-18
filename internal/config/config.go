@@ -39,6 +39,7 @@ type ServerConfig struct {
 	ReadTimeout     time.Duration // HTTP read timeout (affects WS handshake)
 	WriteTimeout    time.Duration // HTTP write timeout (affects WS handshake)
 	ShutdownTimeout time.Duration // graceful shutdown grace period
+	CookieSecure    bool          // set Secure on the session cookie (true behind HTTPS)
 }
 
 // LogConfig groups logging settings.
@@ -57,6 +58,7 @@ func Load() (Config, error) {
 			ReadTimeout:     envDuration("PULSE_SERVER_READ_TIMEOUT", 10*time.Second),
 			WriteTimeout:    envDuration("PULSE_SERVER_WRITE_TIMEOUT", 10*time.Second),
 			ShutdownTimeout: envDuration("PULSE_SERVER_SHUTDOWN_TIMEOUT", 15*time.Second),
+			CookieSecure:    envBool("PULSE_COOKIE_SECURE", false),
 		},
 		Log: LogConfig{
 			Level:  envLogLevel("PULSE_LOG_LEVEL", slog.LevelInfo),
@@ -111,6 +113,17 @@ func envDuration(key string, def time.Duration) time.Duration {
 		return def
 	}
 	return d
+}
+
+func envBool(key string, def bool) bool {
+	switch strings.ToLower(os.Getenv(key)) {
+	case "1", "true", "yes":
+		return true
+	case "0", "false", "no":
+		return false
+	default:
+		return def
+	}
 }
 
 func envLogLevel(key string, def slog.Level) slog.Level {

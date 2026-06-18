@@ -5,6 +5,7 @@ package chat
 
 import (
 	"context"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -20,12 +21,20 @@ func startTestServer(t *testing.T) string {
 	ctx, cancel := context.WithCancel(context.Background())
 	go hub.Run(ctx)
 
-	srv := httptest.NewServer(NewWebSocketHandler(hub, testLogger()))
+	srv := httptest.NewServer(NewWebSocketHandler(hub, testLogger(), testSender))
 	t.Cleanup(func() {
 		srv.Close()
 		cancel()
 	})
 	return "ws" + strings.TrimPrefix(srv.URL, "http")
+}
+
+// testSender stands in for the production session lookup: it resolves the
+// sender from the ?name= query so these handler tests run without the auth
+// package.
+func testSender(r *http.Request) (string, bool) {
+	name := r.URL.Query().Get("name")
+	return name, name != ""
 }
 
 func TestWebSocket_EchoToSender(t *testing.T) {
@@ -138,8 +147,8 @@ func TestWebSocket_TwoClientsSameRoom(t *testing.T) {
 }
 
 func TestWebSocket_MissingParamsRejected(t *testing.T) {
-	// The handler validates room/name before upgrading, so a dial without them
-	// fails the handshake.
+	// The handler validates room before upgrading, so a dial without it fails
+	// the handshake.
 	base := startTestServer(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
