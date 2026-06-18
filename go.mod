@@ -1,6 +1,6 @@
 module github.com/NoahStarkenburg/pulse-chat
 
-go 1.23
+go 1.25.0
 
 // Phase 1 dependencies - added when you run `go mod tidy` after writing the
 // first code that imports them. Listed here for orientation only:
@@ -22,3 +22,5 @@ require (
 	github.com/coder/websocket v1.8.14
 	github.com/google/uuid v1.6.0
 )
+
+require golang.org/x/crypto v0.53.0
