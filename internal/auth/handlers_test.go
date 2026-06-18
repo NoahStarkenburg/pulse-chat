@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -9,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func testLogger() *slog.Logger {
@@ -45,22 +47,37 @@ func newClient(t *testing.T) *http.Client {
 	return &http.Client{Jar: jar}
 }
 
-func post(t *testing.T, c *http.Client, url, body string) *http.Response {
+func do(t *testing.T, c *http.Client, method, url, body string) *http.Response {
 	t.Helper()
-	resp, err := c.Post(url, "application/json", strings.NewReader(body))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	t.Cleanup(cancel)
+
+	var rdr io.Reader
+	if body != "" {
+		rdr = strings.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, url, rdr)
 	if err != nil {
-		t.Fatalf("POST %s: %v", url, err)
+		t.Fatalf("new request: %v", err)
+	}
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := c.Do(req)
+	if err != nil {
+		t.Fatalf("%s %s: %v", method, url, err)
 	}
 	return resp
 }
 
+func post(t *testing.T, c *http.Client, url, body string) *http.Response {
+	t.Helper()
+	return do(t, c, http.MethodPost, url, body)
+}
+
 func get(t *testing.T, c *http.Client, url string) *http.Response {
 	t.Helper()
-	resp, err := c.Get(url)
-	if err != nil {
-		t.Fatalf("GET %s: %v", url, err)
-	}
-	return resp
+	return do(t, c, http.MethodGet, url, "")
 }
 
 func TestAuth_SignupLoginMeLogoutFlow(t *testing.T) {
