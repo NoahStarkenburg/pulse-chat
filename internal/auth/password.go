@@ -34,3 +34,9 @@ func HashPassword(plaintext string) (string, error) {
 func VerifyPassword(plaintext, hash string) error {
 	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(plaintext))
 }
+
+// dummyPasswordHash is a precomputed hash the login path verifies against when
+// the username does not exist. Running a real bcrypt comparison either way keeps
+// login timing constant, so an attacker cannot enumerate usernames by measuring
+// response time. The inputs are fixed and valid, so the error cannot occur.
+var dummyPasswordHash, _ = bcrypt.GenerateFromPassword([]byte("timing-equalizer"), bcryptCost)
