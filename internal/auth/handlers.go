@@ -90,10 +90,12 @@ func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 		// Verify against a dummy hash anyway so timing does not reveal whether
 		// the username exists, and return the same error as a wrong password.
 		_ = VerifyPassword(creds.Password, string(dummyPasswordHash))
+		h.logger.Info("failed login", "username", username, "remote", r.RemoteAddr, "reason", "unknown user")
 		http.Error(w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
 	if err := VerifyPassword(creds.Password, user.PasswordHash); err != nil {
+		h.logger.Info("failed login", "username", username, "remote", r.RemoteAddr, "reason", "bad password")
 		http.Error(w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
