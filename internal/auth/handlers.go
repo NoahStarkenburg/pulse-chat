@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 )
 
 // Length bounds. The password maximum is bcrypt's 72-byte input limit.
@@ -45,7 +46,8 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if len(creds.Username) < minUsernameLen || len(creds.Username) > maxUsernameLen ||
+	username := normalizeUsername(creds.Username)
+	if len(username) < minUsernameLen || len(username) > maxUsernameLen ||
 		len(creds.Password) < minPasswordLen || len(creds.Password) > maxPasswordLen {
 		http.Error(w, "username must be 3-32 characters and password 8-72", http.StatusBadRequest)
 		return
@@ -58,7 +60,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.users.Create(creds.Username, hash)
+	user, err := h.users.Create(username, hash)
 	if err != nil {
 		if errors.Is(err, ErrUserExists) {
 			http.Error(w, "username already taken", http.StatusConflict)
@@ -82,7 +84,8 @@ func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.users.ByUsername(creds.Username)
+	username := normalizeUsername(creds.Username)
+	user, err := h.users.ByUsername(username)
 	if err != nil {
 		// Verify against a dummy hash anyway so timing does not reveal whether
 		// the username exists, and return the same error as a wrong password.
@@ -156,6 +159,12 @@ func (h *Handlers) clearSessionCookie(w http.ResponseWriter) {
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   -1, // delete immediately
 	})
+}
+
+// normalizeUsername canonicalizes a username so lookups are case-insensitive
+// and unaffected by surrounding whitespace.
+func normalizeUsername(s string) string {
+	return strings.ToLower(strings.TrimSpace(s))
 }
 
 // decodeCredentials reads a JSON {username, password} body, bounding its size

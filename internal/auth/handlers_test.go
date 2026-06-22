@@ -134,6 +134,28 @@ func TestAuth_LoginFromSeparateClient(t *testing.T) {
 	resp.Body.Close()
 }
 
+func TestAuth_UsernameIsCaseInsensitive(t *testing.T) {
+	srv := newTestServer(t)
+
+	resp := post(t, newClient(t), srv.URL+"/signup", `{"username":"Heidi","password":"password123"}`)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("signup status = %d, want 201", resp.StatusCode)
+	}
+	var created userResponse
+	_ = json.NewDecoder(resp.Body).Decode(&created)
+	resp.Body.Close()
+	if created.Username != "heidi" {
+		t.Errorf("stored username = %q, want normalized %q", created.Username, "heidi")
+	}
+
+	// A different casing with surrounding whitespace must reach the same account.
+	resp = post(t, newClient(t), srv.URL+"/login", `{"username":"  HEIDI  ","password":"password123"}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("login with different casing = %d, want 200", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
 func TestAuth_DuplicateSignupIsConflict(t *testing.T) {
 	srv := newTestServer(t)
 	resp := post(t, newClient(t), srv.URL+"/signup", `{"username":"carol","password":"password123"}`)
