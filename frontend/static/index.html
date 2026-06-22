@@ -3,17 +3,18 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Pulse Chat test client</title>
+<title>Pulse Chat</title>
 <style>
   :root { color-scheme: light dark; }
   body { font-family: system-ui, sans-serif; max-width: 640px; margin: 2rem auto; padding: 0 1rem; }
   h1 { font-size: 1.2rem; display: flex; align-items: center; gap: .6rem; }
-  #setup { display: flex; gap: .5rem; margin-bottom: .75rem; flex-wrap: wrap; }
-  #setup input { padding: .4rem .5rem; }
+  .row { display: flex; gap: .5rem; margin-bottom: .75rem; flex-wrap: wrap; align-items: center; }
+  input { padding: .4rem .5rem; }
   #status { font-size: .8rem; padding: .15rem .5rem; border-radius: .4rem; }
   .s-closed     { background: #fde2e2; color: #8a1f1f; }
   .s-open       { background: #e2f7e6; color: #1f7a33; }
   .s-connecting { background: #fff4d6; color: #8a6d1f; }
+  #who { font-size: .85rem; color: #666; }
   #log { border: 1px solid #8884; border-radius: .5rem; height: 320px; overflow-y: auto; padding: .5rem; margin: .75rem 0; }
   .msg { margin: .25rem 0; }
   .msg .who { font-weight: 600; }
@@ -25,12 +26,20 @@
 </style>
 </head>
 <body>
-  <h1>Pulse Chat test client <span id="status" class="s-closed">disconnected</span></h1>
+  <h1>Pulse Chat <span id="status" class="s-closed">disconnected</span></h1>
 
-  <div id="setup">
+  <div class="row">
+    <input id="username" placeholder="username" autocomplete="username" />
+    <input id="password" type="password" placeholder="password" autocomplete="current-password" />
+    <button id="signup">Sign up</button>
+    <button id="login">Log in</button>
+    <button id="logout" disabled>Log out</button>
+    <span id="who"></span>
+  </div>
+
+  <div class="row">
     <input id="room" placeholder="room" value="general" />
-    <input id="name" placeholder="your name" value="alice" />
-    <button id="connect">Connect</button>
+    <button id="connect" disabled>Connect</button>
   </div>
 
   <div id="log" aria-live="polite"></div>
@@ -41,12 +50,10 @@
   </form>
 
 <script>
-// Pulse Chat test client. Vanilla JS, no framework. This is the browser side of
-// the same WebSocket protocol the Go server speaks (see internal/chat/message.go):
-//   client -> server: { "type": "chat",    "room": "...", "text": "..." }
-//   server -> client: { "type": "message", "room": "...", "text": "...",
-//                       "id": "...", "sender": "...", "timestamp": "..." }
-// We send only type/room/text; the server stamps id/sender/timestamp.
+// Pulse Chat client. Vanilla JS, no framework. Auth is cookie-based: signup or
+// login sets an HttpOnly session cookie, which the browser then sends on every
+// request including the WebSocket upgrade. The chat wire protocol matches
+// internal/chat/message.go; the server stamps id/sender/timestamp.
 
 let socket = null;
 const $ = (id) => document.getElementById(id);
@@ -81,24 +88,84 @@ function addMessage({ who, text, when, system }) {
   logEl.scrollTop = logEl.scrollHeight;
 }
 
+// --- Auth -----------------------------------------------------------------
+
+function setLoggedIn(user) {
+  $("who").textContent = "logged in as " + user.username;
+  $("logout").disabled = false;
+  $("connect").disabled = false;
+  $("signup").disabled = true;
+  $("login").disabled = true;
+}
+
+function setLoggedOut() {
+  if (socket) { socket.close(); socket = null; }
+  $("who").textContent = "";
+  $("logout").disabled = true;
+  $("connect").disabled = true;
+  $("signup").disabled = false;
+  $("login").disabled = false;
+  $("text").disabled = true;
+  $("send").disabled = true;
+}
+
+async function authenticate(path) {
+  const username = $("username").value.trim();
+  const password = $("password").value;
+  if (!username || !password) { alert("username and password are required"); return; }
+  try {
+    const resp = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin", // send and store the session cookie
+      body: JSON.stringify({ username, password }),
+    });
+    if (!resp.ok) {
+      const msg = await resp.text();
+      alert(`${path} failed (${resp.status}): ${msg.trim()}`);
+      return;
+    }
+    const user = await resp.json();
+    setLoggedIn(user);
+    $("password").value = "";
+  } catch (err) {
+    alert("request failed: " + err);
+  }
+}
+
+async function logout() {
+  try { await fetch("/logout", { method: "POST", credentials: "same-origin" }); } catch {}
+  setLoggedOut();
+  setStatus("closed", "disconnected");
+}
+
+// On load, restore the session if the cookie is still valid.
+async function restoreSession() {
+  try {
+    const resp = await fetch("/me", { credentials: "same-origin" });
+    if (resp.ok) setLoggedIn(await resp.json());
+  } catch {}
+}
+
+// --- Chat -----------------------------------------------------------------
+
 function connect() {
   const room = $("room").value.trim();
-  const name = $("name").value.trim();
-  if (!room || !name) { alert("room and name are required"); return; }
+  if (!room) { alert("room is required"); return; }
 
-  // Build the WebSocket URL from the same origin that served the page.
+  // Same origin as the page; the session cookie is sent on the upgrade.
   const scheme = location.protocol === "https:" ? "wss" : "ws";
-  const url = `${scheme}://${location.host}/ws?room=${encodeURIComponent(room)}&name=${encodeURIComponent(name)}`;
+  const url = `${scheme}://${location.host}/ws?room=${encodeURIComponent(room)}`;
 
   setStatus("connecting", "connecting...");
   socket = new WebSocket(url);
 
   socket.onopen = () => {
-    setStatus("open", `connected to #${room} as ${name}`);
+    setStatus("open", `connected to #${room}`);
     $("text").disabled = false;
     $("send").disabled = false;
     $("text").focus();
-    addMessage({ system: true, text: `joined #${room} as ${name}` });
+    addMessage({ system: true, text: `joined #${room}` });
   };
 
   socket.onmessage = (event) => {
@@ -129,6 +196,9 @@ function send(text) {
   socket.send(JSON.stringify({ type: "chat", room, text }));
 }
 
+$("signup").addEventListener("click", () => authenticate("/signup"));
+$("login").addEventListener("click", () => authenticate("/login"));
+$("logout").addEventListener("click", logout);
 $("connect").addEventListener("click", connect);
 $("composer").addEventListener("submit", (e) => {
   e.preventDefault();
@@ -139,6 +209,8 @@ $("composer").addEventListener("submit", (e) => {
   input.value = "";
   input.focus();
 });
+
+restoreSession();
 </script>
 </body>
 </html>

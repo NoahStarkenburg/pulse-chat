@@ -5,6 +5,7 @@ package chat
 
 import (
 	"context"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -20,12 +21,20 @@ func startTestServer(t *testing.T) string {
 	ctx, cancel := context.WithCancel(context.Background())
 	go hub.Run(ctx)
 
-	srv := httptest.NewServer(NewWebSocketHandler(hub, testLogger()))
+	srv := httptest.NewServer(NewWebSocketHandler(hub, testLogger(), testSender))
 	t.Cleanup(func() {
 		srv.Close()
 		cancel()
 	})
 	return "ws" + strings.TrimPrefix(srv.URL, "http")
+}
+
+// testSender stands in for the production session lookup: it resolves the
+// sender from the ?name= query so these handler tests run without the auth
+// package.
+func testSender(r *http.Request) (string, bool) {
+	name := r.URL.Query().Get("name")
+	return name, name != ""
 }
 
 func TestWebSocket_EchoToSender(t *testing.T) {
@@ -137,9 +146,33 @@ func TestWebSocket_TwoClientsSameRoom(t *testing.T) {
 	}
 }
 
+func TestWebSocket_CrossOriginRejected(t *testing.T) {
+	// CSWSH defense: the handler upgrades with the default same-origin check, so
+	// an upgrade carrying an Origin that does not match the host must be refused.
+	// A non-browser client that sends no Origin (the other tests) is still
+	// allowed; only a forged cross-origin Origin is rejected.
+	base := startTestServer(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	header := http.Header{}
+	header.Set("Origin", "http://evil.example.com")
+	conn, resp, err := websocket.Dial(ctx, base+"/ws?room=general&name=alice", &websocket.DialOptions{
+		HTTPHeader: header,
+	})
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
+	if err == nil {
+		conn.Close(websocket.StatusNormalClosure, "")
+		t.Fatal("expected cross-origin upgrade to be rejected, but it succeeded")
+	}
+}
+
 func TestWebSocket_MissingParamsRejected(t *testing.T) {
-	// The handler validates room/name before upgrading, so a dial without them
-	// fails the handshake.
+	// The handler validates room before upgrading, so a dial without it fails
+	// the handshake.
 	base := startTestServer(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
