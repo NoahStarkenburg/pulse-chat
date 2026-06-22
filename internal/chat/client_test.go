@@ -146,6 +146,30 @@ func TestWebSocket_TwoClientsSameRoom(t *testing.T) {
 	}
 }
 
+func TestWebSocket_CrossOriginRejected(t *testing.T) {
+	// CSWSH defense: the handler upgrades with the default same-origin check, so
+	// an upgrade carrying an Origin that does not match the host must be refused.
+	// A non-browser client that sends no Origin (the other tests) is still
+	// allowed; only a forged cross-origin Origin is rejected.
+	base := startTestServer(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	header := http.Header{}
+	header.Set("Origin", "http://evil.example.com")
+	conn, resp, err := websocket.Dial(ctx, base+"/ws?room=general&name=alice", &websocket.DialOptions{
+		HTTPHeader: header,
+	})
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
+	if err == nil {
+		conn.Close(websocket.StatusNormalClosure, "")
+		t.Fatal("expected cross-origin upgrade to be rejected, but it succeeded")
+	}
+}
+
 func TestWebSocket_MissingParamsRejected(t *testing.T) {
 	// The handler validates room before upgrading, so a dial without it fails
 	// the handshake.
