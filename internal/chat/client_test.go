@@ -20,17 +20,33 @@ import (
 )
 
 func startTestServer(t *testing.T) string {
+	return startTestServerWith(t, newFakeStore())
+}
+
+func startTestServerWith(t *testing.T, store MessageStore) string {
 	t.Helper()
 	hub := NewHub(testLogger())
 	ctx, cancel := context.WithCancel(context.Background())
 	go hub.Run(ctx)
 
-	srv := httptest.NewServer(NewWebSocketHandler(hub, newFakeStore(), testLogger(), testSender))
+	srv := httptest.NewServer(NewWebSocketHandler(hub, store, testLogger(), testSender))
 	t.Cleanup(func() {
 		srv.Close()
 		cancel()
 	})
 	return "ws" + strings.TrimPrefix(srv.URL, "http")
+}
+
+// failingStore is a MessageStore whose Insert always fails, used to prove a
+// message that cannot be persisted is not broadcast.
+type failingStore struct{}
+
+func (failingStore) Insert(context.Context, string, string, string) (store.Message, error) {
+	return store.Message{}, fmt.Errorf("insert failed")
+}
+
+func (failingStore) RecentByRoom(context.Context, string, int) ([]store.Message, error) {
+	return nil, nil
 }
 
 // testSender stands in for the production session lookup: it resolves the
@@ -210,6 +226,37 @@ func TestWebSocket_CrossOriginRejected(t *testing.T) {
 	if err == nil {
 		conn.Close(websocket.StatusNormalClosure, "")
 		t.Fatal("expected cross-origin upgrade to be rejected, but it succeeded")
+	}
+}
+
+func TestWebSocket_InsertFailureIsNotBroadcast(t *testing.T) {
+	// If persistence fails, the sender must get an error and the room must NOT
+	// see the message. The sender receiving an "error" (not a "message") proves
+	// the broadcast never fired, since it would have received its own broadcast.
+	base := startTestServerWith(t, failingStore{})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	conn, resp, err := websocket.Dial(ctx, base+"/ws?room=general&name=alice", nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
+	defer conn.Close(websocket.StatusNormalClosure, "")
+
+	if err := wsjson.Write(ctx, conn, Envelope{Type: TypeChat, Room: "general", Text: "nope"}); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	var got Envelope
+	if err := wsjson.Read(ctx, conn, &got); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if got.Type != TypeError {
+		t.Errorf("got type %q, want %q (a failed insert must not broadcast)", got.Type, TypeError)
 	}
 }
 
