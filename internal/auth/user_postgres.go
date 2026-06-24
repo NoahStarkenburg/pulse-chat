@@ -4,11 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// queryTimeout bounds each user query so a slow database cannot hang an HTTP
+// handler.
+const queryTimeout = 5 * time.Second
 
 // PostgresUserStore persists users in the users table.
 type PostgresUserStore struct {
@@ -23,6 +28,9 @@ func NewPostgresUserStore(pool *pgxpool.Pool) *PostgresUserStore {
 // Create inserts a user. A unique-violation on username is mapped to
 // ErrUserExists so callers can tell "username taken" from a real failure.
 func (s *PostgresUserStore) Create(ctx context.Context, username, passwordHash string) (*User, error) {
+	ctx, cancel := context.WithTimeout(ctx, queryTimeout)
+	defer cancel()
+
 	var u User
 	err := s.pool.QueryRow(ctx,
 		`INSERT INTO users (username, password_hash) VALUES ($1, $2)
@@ -41,6 +49,9 @@ func (s *PostgresUserStore) Create(ctx context.Context, username, passwordHash s
 
 // ByUsername looks up a user by username.
 func (s *PostgresUserStore) ByUsername(ctx context.Context, username string) (*User, error) {
+	ctx, cancel := context.WithTimeout(ctx, queryTimeout)
+	defer cancel()
+
 	var u User
 	err := s.pool.QueryRow(ctx,
 		`SELECT id::text, username, password_hash, created_at FROM users WHERE username = $1`,
@@ -51,6 +62,9 @@ func (s *PostgresUserStore) ByUsername(ctx context.Context, username string) (*U
 
 // ByID looks up a user by ID.
 func (s *PostgresUserStore) ByID(ctx context.Context, id string) (*User, error) {
+	ctx, cancel := context.WithTimeout(ctx, queryTimeout)
+	defer cancel()
+
 	var u User
 	err := s.pool.QueryRow(ctx,
 		`SELECT id::text, username, password_hash, created_at FROM users WHERE id = $1`,
