@@ -18,7 +18,7 @@ const (
 
 // Handlers serves the authentication HTTP endpoints.
 type Handlers struct {
-	users    *UserStore
+	users    UserStore
 	sessions *SessionStore
 	logger   *slog.Logger
 	secure   bool // set the cookie Secure flag (true behind HTTPS)
@@ -26,7 +26,7 @@ type Handlers struct {
 
 // NewHandlers constructs the auth HTTP handlers. secure should be true in
 // production so the session cookie is only sent over HTTPS.
-func NewHandlers(users *UserStore, sessions *SessionStore, logger *slog.Logger, secure bool) *Handlers {
+func NewHandlers(users UserStore, sessions *SessionStore, logger *slog.Logger, secure bool) *Handlers {
 	return &Handlers{users: users, sessions: sessions, logger: logger, secure: secure}
 }
 
@@ -60,7 +60,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.users.Create(username, hash)
+	user, err := h.users.Create(r.Context(), username, hash)
 	if err != nil {
 		if errors.Is(err, ErrUserExists) {
 			http.Error(w, "username already taken", http.StatusConflict)
@@ -85,7 +85,7 @@ func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	username := normalizeUsername(creds.Username)
-	user, err := h.users.ByUsername(username)
+	user, err := h.users.ByUsername(r.Context(), username)
 	if err != nil {
 		// Verify against a dummy hash anyway so timing does not reveal whether
 		// the username exists, and return the same error as a wrong password.
@@ -122,7 +122,7 @@ func (h *Handlers) Me(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "authentication required", http.StatusUnauthorized)
 		return
 	}
-	user, err := h.users.ByID(userID)
+	user, err := h.users.ByID(r.Context(), userID)
 	if err != nil {
 		http.Error(w, "authentication required", http.StatusUnauthorized)
 		return

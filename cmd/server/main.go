@@ -73,9 +73,9 @@ func run() error {
 
 	mux := http.NewServeMux()
 
-	// Auth: in-memory user and session stores for Phase 1.5 (Phase 2 promotes
-	// them to Postgres).
-	users := auth.NewUserStore()
+	// Users live in Postgres (Phase 2); sessions stay in-memory until the Redis
+	// phase promotes them.
+	users := auth.NewPostgresUserStore(pool)
 	sessions := auth.NewSessionStore()
 	authHandlers := auth.NewHandlers(users, sessions, logger, cfg.Server.CookieSecure)
 	requireAuth := auth.RequireAuth(sessions)
@@ -87,7 +87,7 @@ func run() error {
 		if !ok {
 			return "", false
 		}
-		u, err := users.ByID(userID)
+		u, err := users.ByID(r.Context(), userID)
 		if err != nil {
 			return "", false
 		}
