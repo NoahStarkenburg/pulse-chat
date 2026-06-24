@@ -8,6 +8,10 @@
 # Run `just` (no args) to see the list of available recipes.
 # Run `just <recipe>` to execute one.
 
+# Load a local .env (gitignored) into recipe environments so PULSE_* settings
+# like the Postgres DSN reach `just run`. No-op if .env does not exist.
+set dotenv-load := true
+
 # Default: show available recipes.
 default:
     @just --list
