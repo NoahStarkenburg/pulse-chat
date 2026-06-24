@@ -18,6 +18,7 @@ import (
 	"github.com/NoahStarkenburg/pulse-chat/internal/auth"
 	"github.com/NoahStarkenburg/pulse-chat/internal/chat"
 	"github.com/NoahStarkenburg/pulse-chat/internal/config"
+	"github.com/NoahStarkenburg/pulse-chat/internal/store"
 )
 
 func main() {
@@ -47,6 +48,19 @@ func run() error {
 	// drains clients on cancel.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// Connect to Postgres before serving. The database is a hard dependency from
+	// Phase 2 on, so fail fast at startup if it is missing or unreachable rather
+	// than starting and erroring on the first query.
+	if cfg.Postgres.URL == "" {
+		return fmt.Errorf("PULSE_POSTGRES_URL is required (set it in your environment or .env)")
+	}
+	pool, err := store.NewPool(ctx, cfg.Postgres.URL)
+	if err != nil {
+		return fmt.Errorf("connecting to postgres: %w", err)
+	}
+	defer pool.Close()
+	logger.Info("connected to postgres")
 
 	// Start the Hub. Keep hubDone so shutdown can wait for it to finish draining
 	// WebSocket connections, which srv.Shutdown does not do (see below).
@@ -85,9 +99,16 @@ func run() error {
 		_, _ = w.Write([]byte("ok"))
 	})
 
-	// /readyz reports readiness to serve. Phase 1 has no dependencies, so it is
-	// always ready; later phases will check Postgres/Redis/RabbitMQ here.
+	// /readyz reports readiness to serve. From Phase 2 the database is a hard
+	// dependency, so a failed ping returns 503 and a load balancer or Kubernetes
+	// stops routing traffic here until Postgres recovers.
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
+		pingCtx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+		if err := pool.Ping(pingCtx); err != nil {
+			http.Error(w, "not ready", http.StatusServiceUnavailable)
+			return
+		}
 		_, _ = w.Write([]byte("ok"))
 	})
 
