@@ -19,6 +19,10 @@ type Message struct {
 	CreatedAt time.Time
 }
 
+// queryTimeout bounds every database call so a slow or stuck query fails fast
+// instead of hanging the connection (and goroutine) that issued it.
+const queryTimeout = 5 * time.Second
+
 // MessageRepo reads and writes chat messages in Postgres.
 type MessageRepo struct {
 	pool *pgxpool.Pool
@@ -37,6 +41,9 @@ func NewMessageRepo(pool *pgxpool.Pool) *MessageRepo {
 // Every value is passed as a parameter ($1, $2, ...), never concatenated into
 // the SQL string, which is what makes SQL injection impossible.
 func (r *MessageRepo) Insert(ctx context.Context, room, userID, body string) (Message, error) {
+	ctx, cancel := context.WithTimeout(ctx, queryTimeout)
+	defer cancel()
+
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return Message{}, err
@@ -82,6 +89,9 @@ func (r *MessageRepo) Insert(ctx context.Context, room, userID, body string) (Me
 // RecentByRoom returns up to limit of the most recent messages in room, ordered
 // oldest-first so the caller can render them top to bottom.
 func (r *MessageRepo) RecentByRoom(ctx context.Context, room string, limit int) ([]Message, error) {
+	ctx, cancel := context.WithTimeout(ctx, queryTimeout)
+	defer cancel()
+
 	// ORDER BY created_at DESC + LIMIT lets the (room_id, created_at DESC) index
 	// hand back only the most recent rows, already in order, without scanning the
 	// whole room or sorting.
