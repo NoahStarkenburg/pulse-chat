@@ -79,19 +79,21 @@ func run() error {
 	sessions := auth.NewSessionStore()
 	authHandlers := auth.NewHandlers(users, sessions, logger, cfg.Server.CookieSecure)
 	requireAuth := auth.RequireAuth(sessions)
+	messages := store.NewMessageRepo(pool)
 
 	// resolveSender turns the authenticated user ID (placed in the request
-	// context by requireAuth) into the display name the chat stamps as sender.
-	resolveSender := func(r *http.Request) (string, bool) {
+	// context by requireAuth) into what the chat layer needs: the id for the
+	// messages foreign key and the display name to stamp as sender.
+	resolveSender := func(r *http.Request) (string, string, bool) {
 		userID, ok := auth.UserIDFromContext(r.Context())
 		if !ok {
-			return "", false
+			return "", "", false
 		}
 		u, err := users.ByID(r.Context(), userID)
 		if err != nil {
-			return "", false
+			return "", "", false
 		}
-		return u.Username, true
+		return u.ID, u.Username, true
 	}
 
 	// /healthz reports the process is alive; no dependency checks.
@@ -118,7 +120,7 @@ func run() error {
 	mux.Handle("GET /me", requireAuth(http.HandlerFunc(authHandlers.Me)))
 
 	// /ws requires a valid session; the sender comes from it, not the URL.
-	mux.Handle("GET /ws", requireAuth(chat.NewWebSocketHandler(hub, logger, resolveSender)))
+	mux.Handle("GET /ws", requireAuth(chat.NewWebSocketHandler(hub, messages, logger, resolveSender)))
 
 	// Serve the browser test page. http.Dir is relative to the working
 	// directory, so run from the repo root. In production this belongs on a CDN.

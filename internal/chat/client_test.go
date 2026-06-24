@@ -5,14 +5,18 @@ package chat
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
+
+	"github.com/NoahStarkenburg/pulse-chat/internal/store"
 )
 
 func startTestServer(t *testing.T) string {
@@ -21,7 +25,7 @@ func startTestServer(t *testing.T) string {
 	ctx, cancel := context.WithCancel(context.Background())
 	go hub.Run(ctx)
 
-	srv := httptest.NewServer(NewWebSocketHandler(hub, testLogger(), testSender))
+	srv := httptest.NewServer(NewWebSocketHandler(hub, newFakeStore(), testLogger(), testSender))
 	t.Cleanup(func() {
 		srv.Close()
 		cancel()
@@ -31,10 +35,49 @@ func startTestServer(t *testing.T) string {
 
 // testSender stands in for the production session lookup: it resolves the
 // sender from the ?name= query so these handler tests run without the auth
-// package.
-func testSender(r *http.Request) (string, bool) {
+// package. The user id and display name are both the name, for simplicity.
+func testSender(r *http.Request) (string, string, bool) {
 	name := r.URL.Query().Get("name")
-	return name, name != ""
+	return name, name, name != ""
+}
+
+// fakeStore is an in-memory MessageStore for the handler tests. It records
+// messages per room and replays them, standing in for the Postgres repo.
+type fakeStore struct {
+	mu      sync.Mutex
+	counter int
+	byRoom  map[string][]store.Message
+}
+
+func newFakeStore() *fakeStore {
+	return &fakeStore{byRoom: make(map[string][]store.Message)}
+}
+
+func (f *fakeStore) Insert(_ context.Context, room, userID, body string) (store.Message, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.counter++
+	m := store.Message{
+		ID:        fmt.Sprintf("m%d", f.counter),
+		Room:      room,
+		Sender:    userID, // the fake has no users table; echo back the id given
+		Body:      body,
+		CreatedAt: time.Now().UTC(),
+	}
+	f.byRoom[room] = append(f.byRoom[room], m)
+	return m, nil
+}
+
+func (f *fakeStore) RecentByRoom(_ context.Context, room string, limit int) ([]store.Message, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	all := f.byRoom[room]
+	if len(all) > limit {
+		all = all[len(all)-limit:]
+	}
+	out := make([]store.Message, len(all))
+	copy(out, all)
+	return out, nil
 }
 
 func TestWebSocket_EchoToSender(t *testing.T) {
@@ -167,6 +210,53 @@ func TestWebSocket_CrossOriginRejected(t *testing.T) {
 	if err == nil {
 		conn.Close(websocket.StatusNormalClosure, "")
 		t.Fatal("expected cross-origin upgrade to be rejected, but it succeeded")
+	}
+}
+
+func TestWebSocket_LoadsHistoryOnJoin(t *testing.T) {
+	base := startTestServer(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	// Alice connects, sends a message (which gets persisted), confirms the echo,
+	// then leaves.
+	alice, resp, err := websocket.Dial(ctx, base+"/ws?room=general&name=alice", nil)
+	if err != nil {
+		t.Fatalf("alice dial: %v", err)
+	}
+	if resp != nil && resp.Body != nil {
+		_ = resp.Body.Close()
+	}
+	if err := wsjson.Write(ctx, alice, Envelope{Type: TypeChat, Room: "general", Text: "first"}); err != nil {
+		t.Fatalf("alice write: %v", err)
+	}
+	var echo Envelope
+	if err := wsjson.Read(ctx, alice, &echo); err != nil {
+		t.Fatalf("alice read echo: %v", err)
+	}
+	if echo.Text != "first" {
+		t.Fatalf("alice echo = %q, want first", echo.Text)
+	}
+	alice.Close(websocket.StatusNormalClosure, "")
+
+	// Bob joins afterward and must receive the stored history before any live
+	// traffic.
+	bob, resp2, err := websocket.Dial(ctx, base+"/ws?room=general&name=bob", nil)
+	if err != nil {
+		t.Fatalf("bob dial: %v", err)
+	}
+	if resp2 != nil && resp2.Body != nil {
+		_ = resp2.Body.Close()
+	}
+	defer bob.Close(websocket.StatusNormalClosure, "")
+
+	var hist Envelope
+	if err := wsjson.Read(ctx, bob, &hist); err != nil {
+		t.Fatalf("bob read history: %v", err)
+	}
+	if hist.Type != TypeMessage || hist.Text != "first" || hist.Sender != "alice" {
+		t.Errorf("bob history = %+v, want a 'message' 'first' from 'alice'", hist)
 	}
 }
 

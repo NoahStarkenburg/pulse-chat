@@ -7,31 +7,46 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
-	"github.com/google/uuid"
+
+	"github.com/NoahStarkenburg/pulse-chat/internal/store"
 )
 
+// MessageStore persists chat messages and loads recent history. store.MessageRepo
+// satisfies it; the chat package depends on this interface, not on the store
+// implementation directly, so it stays decoupled and easy to fake in tests.
+type MessageStore interface {
+	Insert(ctx context.Context, room, userID, body string) (store.Message, error)
+	RecentByRoom(ctx context.Context, room string, limit int) ([]store.Message, error)
+}
+
 // Client owns a single WebSocket connection. It runs two goroutines for the
-// connection's lifetime: readPump (reads from the socket, forwards to the Hub)
-// and writePump (writes Hub messages to the socket). They are split because a
-// WebSocket is full-duplex, reads block indefinitely, and a connection must
-// have exactly one writer or concurrent frames corrupt the stream.
+// connection's lifetime: readPump (reads from the socket, persists, and forwards
+// to the Hub) and writePump (writes Hub messages to the socket). They are split
+// because a WebSocket is full-duplex, reads block indefinitely, and a connection
+// must have exactly one writer or concurrent frames corrupt the stream.
 type Client struct {
 	conn   *websocket.Conn
 	room   string // server-authoritative room
-	sender string // display name (Phase 1: query param; later: auth session)
+	userID string // authenticated user id (the messages foreign key)
+	sender string // display name, from the authenticated session
 
 	// outbound is this client's delivery queue: the Hub pushes envelopes on and
 	// writePump drains them. The Hub closes it (once) to signal shutdown.
 	outbound chan Envelope
 
+	store  MessageStore
 	hub    *Hub
 	logger *slog.Logger
 }
 
 // outboundBuffer is the per-client queue depth. Large enough to ride out a
-// brief network stall, small enough that many clients fit in memory and a
-// genuinely slow client is dropped before it accumulates stale messages.
+// brief network stall (and to hold the joined history burst), small enough that
+// many clients fit in memory and a genuinely slow client is dropped before it
+// accumulates stale messages.
 const outboundBuffer = 64
+
+// historyLimit is how many recent messages a joining client is sent.
+const historyLimit = 50
 
 const (
 	// pingInterval is how often we probe an idle connection so a peer that
@@ -45,20 +60,44 @@ const (
 
 // NewClient constructs a Client. Registering it with the Hub and starting the
 // pumps is left to the caller so the connection lifecycle stays explicit.
-func NewClient(conn *websocket.Conn, hub *Hub, room, sender string, logger *slog.Logger) *Client {
+func NewClient(conn *websocket.Conn, hub *Hub, store MessageStore, room, userID, sender string, logger *slog.Logger) *Client {
 	return &Client{
 		conn:     conn,
 		room:     room,
+		userID:   userID,
 		sender:   sender,
 		outbound: make(chan Envelope, outboundBuffer),
+		store:    store,
 		hub:      hub,
 		logger:   logger,
 	}
 }
 
+// loadHistory sends up to historyLimit recent messages for the room to this
+// client, oldest-first, before it joins the live feed. A failure is logged but
+// not fatal: the client still receives live messages.
+func (c *Client) loadHistory(ctx context.Context) {
+	msgs, err := c.store.RecentByRoom(ctx, c.room, historyLimit)
+	if err != nil {
+		c.logger.Error("loading history failed", "err", err, "room", c.room)
+		return
+	}
+	for _, m := range msgs {
+		ts := m.CreatedAt
+		c.queue(Envelope{
+			Type:      TypeMessage,
+			Room:      c.room,
+			Text:      m.Body,
+			ID:        m.ID,
+			Sender:    m.Sender,
+			Timestamp: &ts,
+		})
+	}
+}
+
 // readPump reads from the socket until the connection errors or ctx is
-// cancelled, then unregisters. The server overwrites every consequential field
-// so a client cannot forge identity, room, timestamp, or message ID.
+// cancelled, then unregisters. Each chat message is persisted before it is
+// broadcast, so the room never sees a message that was not stored.
 func (c *Client) readPump(ctx context.Context) {
 	for {
 		var env Envelope
@@ -69,19 +108,37 @@ func (c *Client) readPump(ctx context.Context) {
 
 		switch env.Type {
 		case TypeChat:
-			now := time.Now().UTC()
-			out := Envelope{
+			// Persist first; broadcast only if the write succeeded. Broadcasting a
+			// message we failed to store would show users something that vanishes on
+			// reload. Text is the only field taken from the client; the store stamps
+			// the id and timestamp.
+			stored, err := c.store.Insert(ctx, c.room, c.userID, env.Text)
+			if err != nil {
+				c.logger.Error("persisting message failed; not broadcasting", "err", err, "room", c.room)
+				c.queue(Envelope{Type: TypeError, Room: c.room, Text: "message could not be delivered"})
+				continue
+			}
+			c.hub.Broadcast(Envelope{
 				Type:      TypeMessage,
 				Room:      c.room,
-				Text:      env.Text, // the only field taken from the client
-				ID:        uuid.NewString(),
-				Sender:    c.sender,
-				Timestamp: &now,
-			}
-			c.hub.Broadcast(out)
+				Text:      stored.Body,
+				ID:        stored.ID,
+				Sender:    stored.Sender,
+				Timestamp: &stored.CreatedAt,
+			})
 		default:
-			c.logger.Debug("ignoring non-chat message in phase 1", "type", env.Type)
+			c.logger.Debug("ignoring unsupported message type", "type", env.Type)
 		}
+	}
+}
+
+// queue enqueues an envelope to this client's outbound buffer, dropping it if
+// the buffer is full rather than blocking the caller.
+func (c *Client) queue(env Envelope) {
+	select {
+	case c.outbound <- env:
+	default:
+		c.logger.Warn("dropping outbound message: buffer full", "type", env.Type, "room", c.room)
 	}
 }
 
