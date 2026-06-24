@@ -11,22 +11,22 @@ import (
 // WebSocket and ties the resulting Client into the Hub for the connection's
 // lifetime.
 //
-// Mount it behind authentication. resolveSender returns the authenticated
-// username for the request (in production, from the session that RequireAuth
-// validated). The sender is taken from there, never from a query param, so a
-// client cannot claim another identity.
+// Mount it behind authentication. resolveSender returns the authenticated user's
+// id and display name for the request (in production, from the session that
+// RequireAuth validated). Identity is taken from there, never from a query
+// param, so a client cannot claim to be someone else.
 //
 // A WebSocket starts as an HTTP GET with an Upgrade header; websocket.Accept
 // performs the 101 handshake, after which the connection is hijacked and the
 // normal HTTP machinery no longer manages it.
-func NewWebSocketHandler(hub *Hub, logger *slog.Logger, resolveSender func(*http.Request) (string, bool)) http.Handler {
+func NewWebSocketHandler(hub *Hub, store MessageStore, logger *slog.Logger, resolveSender func(*http.Request) (userID, username string, ok bool)) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		room := r.URL.Query().Get("room")
 		if room == "" {
 			http.Error(w, "missing required query param: room", http.StatusBadRequest)
 			return
 		}
-		sender, ok := resolveSender(r)
+		userID, sender, ok := resolveSender(r)
 		if !ok {
 			http.Error(w, "authentication required", http.StatusUnauthorized)
 			return
@@ -45,14 +45,17 @@ func NewWebSocketHandler(hub *Hub, logger *slog.Logger, resolveSender func(*http
 		// already closed it gracefully.
 		defer func() { _ = conn.CloseNow() }()
 
-		client := NewClient(conn, hub, room, sender, logger)
-		hub.Register(client)
+		client := NewClient(conn, hub, store, room, userID, sender, logger)
 
 		ctx := r.Context()
 		go client.writePump(ctx)
+		// Send recent history to this client before it joins the live feed, so it
+		// renders past messages first and then receives new ones in order.
+		client.loadHistory(ctx)
+		hub.Register(client)
 		// readPump runs in the handler goroutine and blocks for the connection's
-		// lifetime. While the handler is executing the server keeps the
-		// connection open; returning early would tear it down.
+		// lifetime. While the handler is executing the server keeps the connection
+		// open; returning early would tear it down.
 		client.readPump(ctx)
 	})
 }
