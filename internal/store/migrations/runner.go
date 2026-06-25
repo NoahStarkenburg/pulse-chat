@@ -141,7 +141,7 @@ func Down(ctx context.Context, pool *pgxpool.Pool) error {
 		}
 	}
 	if target == nil {
-		fmt.Println("no migrations to roll back")
+		fmt.Printf("no migrations to roll back\n")
 		return nil
 	}
 	if err := runInTx(ctx, pool, target.down, `DELETE FROM schema_migrations WHERE version = $1`, target.version); err != nil {
