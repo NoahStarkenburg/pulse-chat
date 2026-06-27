@@ -18,6 +18,7 @@ import (
 	"github.com/NoahStarkenburg/pulse-chat/internal/auth"
 	"github.com/NoahStarkenburg/pulse-chat/internal/chat"
 	"github.com/NoahStarkenburg/pulse-chat/internal/config"
+	"github.com/NoahStarkenburg/pulse-chat/internal/store"
 )
 
 func main() {
@@ -48,6 +49,19 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// Connect to Postgres before serving. The database is a hard dependency from
+	// Phase 2 on, so fail fast at startup if it is missing or unreachable rather
+	// than starting and erroring on the first query.
+	if cfg.Postgres.URL == "" {
+		return fmt.Errorf("PULSE_POSTGRES_URL is required (set it in your environment or .env)")
+	}
+	pool, err := store.NewPool(ctx, cfg.Postgres.URL)
+	if err != nil {
+		return fmt.Errorf("connecting to postgres: %w", err)
+	}
+	defer pool.Close()
+	logger.Info("connected to postgres")
+
 	// Start the Hub. Keep hubDone so shutdown can wait for it to finish draining
 	// WebSocket connections, which srv.Shutdown does not do (see below).
 	hub := chat.NewHub(logger)
@@ -59,25 +73,27 @@ func run() error {
 
 	mux := http.NewServeMux()
 
-	// Auth: in-memory user and session stores for Phase 1.5 (Phase 2 promotes
-	// them to Postgres).
-	users := auth.NewUserStore()
+	// Users live in Postgres (Phase 2); sessions stay in-memory until the Redis
+	// phase promotes them.
+	users := auth.NewPostgresUserStore(pool)
 	sessions := auth.NewSessionStore()
 	authHandlers := auth.NewHandlers(users, sessions, logger, cfg.Server.CookieSecure)
 	requireAuth := auth.RequireAuth(sessions)
+	messages := store.NewMessageRepo(pool)
 
 	// resolveSender turns the authenticated user ID (placed in the request
-	// context by requireAuth) into the display name the chat stamps as sender.
-	resolveSender := func(r *http.Request) (string, bool) {
+	// context by requireAuth) into what the chat layer needs: the id for the
+	// messages foreign key and the display name to stamp as sender.
+	resolveSender := func(r *http.Request) (string, string, bool) {
 		userID, ok := auth.UserIDFromContext(r.Context())
 		if !ok {
-			return "", false
+			return "", "", false
 		}
-		u, err := users.ByID(userID)
+		u, err := users.ByID(r.Context(), userID)
 		if err != nil {
-			return "", false
+			return "", "", false
 		}
-		return u.Username, true
+		return u.ID, u.Username, true
 	}
 
 	// /healthz reports the process is alive; no dependency checks.
@@ -85,9 +101,16 @@ func run() error {
 		_, _ = w.Write([]byte("ok"))
 	})
 
-	// /readyz reports readiness to serve. Phase 1 has no dependencies, so it is
-	// always ready; later phases will check Postgres/Redis/RabbitMQ here.
+	// /readyz reports readiness to serve. From Phase 2 the database is a hard
+	// dependency, so a failed ping returns 503 and a load balancer or Kubernetes
+	// stops routing traffic here until Postgres recovers.
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
+		pingCtx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+		if err := pool.Ping(pingCtx); err != nil {
+			http.Error(w, "not ready", http.StatusServiceUnavailable)
+			return
+		}
 		_, _ = w.Write([]byte("ok"))
 	})
 
@@ -97,7 +120,7 @@ func run() error {
 	mux.Handle("GET /me", requireAuth(http.HandlerFunc(authHandlers.Me)))
 
 	// /ws requires a valid session; the sender comes from it, not the URL.
-	mux.Handle("GET /ws", requireAuth(chat.NewWebSocketHandler(hub, logger, resolveSender)))
+	mux.Handle("GET /ws", requireAuth(chat.NewWebSocketHandler(hub, messages, logger, resolveSender)))
 
 	// Serve the browser test page. http.Dir is relative to the working
 	// directory, so run from the repo root. In production this belongs on a CDN.
