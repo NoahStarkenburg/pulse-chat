@@ -49,6 +49,18 @@ func NewWebSocketHandler(hub *Hub, store MessageStore, logger *slog.Logger, reso
 
 		ctx := r.Context()
 		go client.writePump(ctx)
+
+		// Subscribe this instance to the room's bus channel before joining the live
+		// feed, so a message published the instant after we join is delivered back
+		// to us. Reference counted: the first local client in a room subscribes, the
+		// last to leave unsubscribes. Only release if we acquired, so a failed
+		// subscribe does not decrement another connection's reference.
+		if err := hub.Subscribe(room); err != nil {
+			logger.Error("subscribing to room failed", "err", err, "room", room)
+		} else {
+			defer hub.Unsubscribe(room)
+		}
+
 		// Send recent history to this client before it joins the live feed, so it
 		// renders past messages first and then receives new ones in order.
 		client.loadHistory(ctx)

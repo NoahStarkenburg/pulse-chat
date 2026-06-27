@@ -16,6 +16,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 
+	"github.com/NoahStarkenburg/pulse-chat/internal/bus"
 	"github.com/NoahStarkenburg/pulse-chat/internal/store"
 )
 
@@ -25,7 +26,7 @@ func startTestServer(t *testing.T) string {
 
 func startTestServerWith(t *testing.T, store MessageStore) string {
 	t.Helper()
-	hub := NewHub(testLogger())
+	hub := NewHub(testLogger(), bus.NewMemory())
 	ctx, cancel := context.WithCancel(context.Background())
 	go hub.Run(ctx)
 
