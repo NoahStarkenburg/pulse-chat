@@ -21,7 +21,7 @@ func testLogger() *slog.Logger {
 // httptest server.
 func newTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
-	users := NewUserStore()
+	users := NewMemoryUserStore()
 	sessions := NewSessionStore()
 	h := NewHandlers(users, sessions, testLogger(), false)
 

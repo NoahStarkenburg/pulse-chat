@@ -25,12 +25,13 @@ import (
 // these env vars are read. After startup, pass Config (or a sub-struct) by
 // value through your dependency wiring.
 type Config struct {
-	Server ServerConfig
-	Log    LogConfig
+	Server   ServerConfig
+	Log      LogConfig
+	Postgres PostgresConfig
 
-	// Future phases will add: Postgres, Redis, RabbitMQ, AI. Keeping the
-	// struct flat-but-grouped (e.g. Server.Addr) makes the call sites
-	// clearer than one giant flat struct.
+	// Future phases will add: Redis, RabbitMQ, AI. Keeping the struct
+	// flat-but-grouped (e.g. Server.Addr) makes the call sites clearer than
+	// one giant flat struct.
 }
 
 // ServerConfig groups HTTP/WebSocket server settings.
@@ -48,6 +49,13 @@ type LogConfig struct {
 	Format string     // "text" or "json"
 }
 
+// PostgresConfig groups database settings. URL is a libpq-style DSN; pool
+// tuning (max connections, lifetimes) can ride on the DSN as query params, so
+// the whole database configuration is a single connection string.
+type PostgresConfig struct {
+	URL string // e.g. postgres://user:pass@host:5432/db?sslmode=verify-full
+}
+
 // Load reads environment variables and returns a fully populated Config. On
 // error it returns a non-nil error naming the variable that was wrong;
 // failing fast at startup beats mysterious runtime behavior.
@@ -63,6 +71,9 @@ func Load() (Config, error) {
 		Log: LogConfig{
 			Level:  envLogLevel("PULSE_LOG_LEVEL", slog.LevelInfo),
 			Format: envString("PULSE_LOG_FORMAT", "text"),
+		},
+		Postgres: PostgresConfig{
+			URL: envString("PULSE_POSTGRES_URL", ""),
 		},
 	}
 
