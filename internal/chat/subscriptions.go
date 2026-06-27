@@ -62,7 +62,7 @@ func newSubscriptions(b bus.PubSub, deliver func(Envelope), logger *slog.Logger)
 // acquire ensures this instance is subscribed to room and increments the
 // reference count. The first acquirer subscribes (synchronously, so a publish
 // that immediately follows the join is delivered back) and starts the pump.
-func (s *subscriptions) acquire(room string) error {
+func (s *subscriptions) acquire(ctx context.Context, room string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -71,13 +71,15 @@ func (s *subscriptions) acquire(room string) error {
 		return nil
 	}
 
-	// A fresh, bounded context: the subscription must outlive any single
-	// connection, so it is not tied to a request context, and go-redis receives
-	// messages on its own internal context once subscribed.
-	ctx, cancel := context.WithTimeout(context.Background(), subscribeTimeout)
+	// Bound the subscribe-and-confirm with a timeout derived from the caller's
+	// context. Only this initial round-trip uses the context; the live
+	// subscription receives on go-redis's own internal context, so it survives
+	// the caller's context being cancelled (pinned by a regression test). That is
+	// what lets the subscription outlive the connection that first opened it.
+	subCtx, cancel := context.WithTimeout(ctx, subscribeTimeout)
 	defer cancel()
 
-	sub, err := s.bus.Subscribe(ctx, channelForRoom(room))
+	sub, err := s.bus.Subscribe(subCtx, channelForRoom(room))
 	if err != nil {
 		return err
 	}

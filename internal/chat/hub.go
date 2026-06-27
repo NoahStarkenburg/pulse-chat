@@ -172,8 +172,8 @@ func (h *Hub) Unregister(c *Client) {
 // Subscribe ensures this instance receives bus messages for room. Reference
 // counted: call once per joining connection, paired with Unsubscribe. Safe to
 // call from any goroutine.
-func (h *Hub) Subscribe(room string) error {
-	return h.subs.acquire(room)
+func (h *Hub) Subscribe(ctx context.Context, room string) error {
+	return h.subs.acquire(ctx, room)
 }
 
 // Unsubscribe drops one reference to room's subscription, closing it when the

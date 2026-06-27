@@ -55,7 +55,7 @@ func NewWebSocketHandler(hub *Hub, store MessageStore, logger *slog.Logger, reso
 		// to us. Reference counted: the first local client in a room subscribes, the
 		// last to leave unsubscribes. Only release if we acquired, so a failed
 		// subscribe does not decrement another connection's reference.
-		if err := hub.Subscribe(room); err != nil {
+		if err := hub.Subscribe(ctx, room); err != nil {
 			logger.Error("subscribing to room failed", "err", err, "room", room)
 		} else {
 			defer hub.Unsubscribe(room)

@@ -121,10 +121,10 @@ func TestSubscriptions_RefCountedLifecycle(t *testing.T) {
 	received := make(chan Envelope, 8)
 	subs := newSubscriptions(b, func(e Envelope) { received <- e }, testLogger())
 
-	if err := subs.acquire("r"); err != nil { // first client: subscribes
+	if err := subs.acquire(context.Background(), "r"); err != nil { // first client: subscribes
 		t.Fatalf("acquire 1: %v", err)
 	}
-	if err := subs.acquire("r"); err != nil { // second client: ref-count only
+	if err := subs.acquire(context.Background(), "r"); err != nil { // second client: ref-count only
 		t.Fatalf("acquire 2: %v", err)
 	}
 
