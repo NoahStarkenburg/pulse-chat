@@ -27,7 +27,7 @@ func startInstance(t *testing.T, b bus.PubSub, store MessageStore) string {
 	ctx, cancel := context.WithCancel(context.Background())
 	go hub.Run(ctx)
 
-	srv := httptest.NewServer(NewWebSocketHandler(hub, store, testLogger(), testSender))
+	srv := httptest.NewServer(NewWebSocketHandler(hub, store, newFakeCache(), testLogger(), testSender))
 	t.Cleanup(func() {
 		srv.Close()
 		cancel()

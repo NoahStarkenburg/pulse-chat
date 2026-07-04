@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"time"
 
@@ -17,6 +18,23 @@ import (
 type MessageStore interface {
 	Insert(ctx context.Context, room, userID, body string) (store.Message, error)
 	RecentByRoom(ctx context.Context, room string, limit int) ([]store.Message, error)
+}
+
+// Cache is the Redis-backed derived state a Client uses: per-user rate limiting,
+// room presence, and the recent-message cache. cache.Cache satisfies it. The
+// chat package depends on this interface, not the implementation, so tests can
+// fake it and no import cycle forms: the cache traffics in opaque bytes, never
+// chat types.
+type Cache interface {
+	// Allow reports whether the user may send another message now.
+	Allow(ctx context.Context, userID string) (bool, error)
+	// MarkPresent records that user was just seen in room.
+	MarkPresent(ctx context.Context, room, user string) error
+	// PushRecent appends a message payload to room's recent-message cache.
+	PushRecent(ctx context.Context, room string, payload []byte) error
+	// Recent returns up to limit cached payloads for room, oldest-first, or empty
+	// on a miss.
+	Recent(ctx context.Context, room string, limit int) ([][]byte, error)
 }
 
 // Client owns a single WebSocket connection. It runs two goroutines for the
@@ -35,6 +53,7 @@ type Client struct {
 	outbound chan Envelope
 
 	store  MessageStore
+	cache  Cache
 	hub    *Hub
 	logger *slog.Logger
 }
@@ -60,7 +79,7 @@ const (
 
 // NewClient constructs a Client. Registering it with the Hub and starting the
 // pumps is left to the caller so the connection lifecycle stays explicit.
-func NewClient(conn *websocket.Conn, hub *Hub, store MessageStore, room, userID, sender string, logger *slog.Logger) *Client {
+func NewClient(conn *websocket.Conn, hub *Hub, store MessageStore, cache Cache, room, userID, sender string, logger *slog.Logger) *Client {
 	return &Client{
 		conn:     conn,
 		room:     room,
@@ -68,6 +87,7 @@ func NewClient(conn *websocket.Conn, hub *Hub, store MessageStore, room, userID,
 		sender:   sender,
 		outbound: make(chan Envelope, outboundBuffer),
 		store:    store,
+		cache:    cache,
 		hub:      hub,
 		logger:   logger,
 	}
@@ -76,7 +96,26 @@ func NewClient(conn *websocket.Conn, hub *Hub, store MessageStore, room, userID,
 // loadHistory sends up to historyLimit recent messages for the room to this
 // client, oldest-first, before it joins the live feed. A failure is logged but
 // not fatal: the client still receives live messages.
+//
+// Cache-aside: try the Redis recent-message cache first and fall back to
+// Postgres on a miss. The cache is populated by the write path, so a cold or
+// evicted room simply misses here and is served from the source of truth; the
+// next message written repopulates it.
 func (c *Client) loadHistory(ctx context.Context) {
+	if payloads, err := c.cache.Recent(ctx, c.room, historyLimit); err != nil {
+		c.logger.Warn("reading recent cache failed; falling back to store", "err", err, "room", c.room)
+	} else if len(payloads) > 0 {
+		for _, p := range payloads {
+			var env Envelope
+			if err := json.Unmarshal(p, &env); err != nil {
+				c.logger.Warn("dropping malformed cached message", "err", err, "room", c.room)
+				continue
+			}
+			c.queue(env)
+		}
+		return
+	}
+
 	msgs, err := c.store.RecentByRoom(ctx, c.room, historyLimit)
 	if err != nil {
 		c.logger.Error("loading history failed", "err", err, "room", c.room)
@@ -99,6 +138,12 @@ func (c *Client) loadHistory(ctx context.Context) {
 // cancelled, then unregisters. Each chat message is persisted before it is
 // published, so the room never sees a message that was not stored.
 func (c *Client) readPump(ctx context.Context) {
+	// Mark this user present on join so they show online immediately; writePump
+	// refreshes it on a timer for as long as the connection lives.
+	if err := c.cache.MarkPresent(ctx, c.room, c.sender); err != nil {
+		c.logger.Warn("marking presence failed", "err", err, "room", c.room)
+	}
+
 	for {
 		var env Envelope
 		if err := wsjson.Read(ctx, c.conn, &env); err != nil {
@@ -108,6 +153,17 @@ func (c *Client) readPump(ctx context.Context) {
 
 		switch env.Type {
 		case TypeChat:
+			// Rate limit before doing any work. On a limiter error we fail OPEN
+			// (allow): rate limiting is a protective measure, and refusing all chat
+			// because its datastore is unreachable is worse than briefly not limiting.
+			allowed, err := c.cache.Allow(ctx, c.userID)
+			if err != nil {
+				c.logger.Warn("rate limiter unavailable; allowing message", "err", err, "room", c.room)
+			} else if !allowed {
+				c.queue(Envelope{Type: TypeError, Room: c.room, Text: "you are sending messages too fast; slow down"})
+				continue
+			}
+
 			// Persist first; publish only if the write succeeded. Publishing a
 			// message we failed to store would show users something that vanishes on
 			// reload. Text is the only field taken from the client; the store stamps
@@ -118,19 +174,32 @@ func (c *Client) readPump(ctx context.Context) {
 				c.queue(Envelope{Type: TypeError, Room: c.room, Text: "message could not be delivered"})
 				continue
 			}
-			// Publish to the bus rather than fanning out here. This instance's own
-			// subscription delivers the message back to its local clients (the
-			// loopback), so the sender sees it exactly once and so do clients on
-			// other instances. The message is already persisted, so a publish
-			// failure only means it will not appear live; a refresh recovers it.
-			if err := c.hub.Publish(ctx, Envelope{
+
+			outgoing := Envelope{
 				Type:      TypeMessage,
 				Room:      c.room,
 				Text:      stored.Body,
 				ID:        stored.ID,
 				Sender:    stored.Sender,
 				Timestamp: &stored.CreatedAt,
-			}); err != nil {
+			}
+
+			// Warm the recent-message cache in the same code path as the DB write so
+			// the two never drift. Best effort: the message is already durable in
+			// Postgres, so a cache failure only costs a cache miss (and a Postgres
+			// fallback) later.
+			if data, err := json.Marshal(outgoing); err != nil {
+				c.logger.Error("marshaling message for cache failed", "err", err, "room", c.room)
+			} else if err := c.cache.PushRecent(ctx, c.room, data); err != nil {
+				c.logger.Warn("caching recent message failed", "err", err, "room", c.room)
+			}
+
+			// Publish to the bus rather than fanning out here. This instance's own
+			// subscription delivers the message back to its local clients (the
+			// loopback), so the sender sees it exactly once and so do clients on
+			// other instances. The message is already persisted, so a publish
+			// failure only means it will not appear live; a refresh recovers it.
+			if err := c.hub.Publish(ctx, outgoing); err != nil {
 				c.logger.Error("publishing message failed", "err", err, "room", c.room)
 			}
 		default:
@@ -181,6 +250,13 @@ func (c *Client) writePump(ctx context.Context) {
 			if err != nil {
 				c.hub.Unregister(c)
 				return
+			}
+			// Refresh presence on the keepalive cadence so an idle but connected
+			// user (a lurker who never types) still counts as online. The ping
+			// interval is shorter than the presence window, which keeps them from
+			// flickering offline between refreshes.
+			if err := c.cache.MarkPresent(ctx, c.room, c.sender); err != nil {
+				c.logger.Warn("refreshing presence failed", "err", err, "room", c.room)
 			}
 
 		case <-ctx.Done():
