@@ -11,6 +11,8 @@ import (
 	"log/slog"
 	"testing"
 	"time"
+
+	"github.com/NoahStarkenburg/pulse-chat/internal/bus"
 )
 
 func testLogger() *slog.Logger {
@@ -19,7 +21,7 @@ func testLogger() *slog.Logger {
 
 func newTestHub(t *testing.T) *Hub {
 	t.Helper()
-	h := NewHub(testLogger())
+	h := NewHub(testLogger(), bus.NewMemory())
 	ctx, cancel := context.WithCancel(context.Background())
 	go h.Run(ctx)
 	t.Cleanup(cancel)
@@ -50,7 +52,7 @@ func recv(t *testing.T, c *Client) (Envelope, bool) {
 }
 
 func TestHub_RunStopsOnContextCancel(t *testing.T) {
-	h := NewHub(testLogger())
+	h := NewHub(testLogger(), bus.NewMemory())
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { h.Run(ctx); close(done) }()
@@ -70,7 +72,7 @@ func TestHub_BroadcastReachesRoomMembers(t *testing.T) {
 	h.Register(a)
 	h.Register(b)
 
-	h.Broadcast(Envelope{Type: TypeMessage, Room: "general", Text: "hi"})
+	h.deliverLocal(Envelope{Type: TypeMessage, Room: "general", Text: "hi"})
 
 	for _, c := range []*Client{a, b} {
 		env, ok := recv(t, c)
@@ -90,7 +92,7 @@ func TestHub_BroadcastIsRoomScoped(t *testing.T) {
 	h.Register(a)
 	h.Register(b)
 
-	h.Broadcast(Envelope{Type: TypeMessage, Room: "roomA", Text: "only A"})
+	h.deliverLocal(Envelope{Type: TypeMessage, Room: "roomA", Text: "only A"})
 
 	if env, ok := recv(t, a); !ok || env.Text != "only A" {
 		t.Fatalf("roomA client missed its message (ok=%v, text=%q)", ok, env.Text)
@@ -132,7 +134,7 @@ func TestHub_UnregisterIsIdempotent(t *testing.T) {
 	// Confirm the Hub goroutine survived and still processes events.
 	c2 := newTestClient("general", "bob", 8)
 	h.Register(c2)
-	h.Broadcast(Envelope{Type: TypeMessage, Room: "general", Text: "still alive"})
+	h.deliverLocal(Envelope{Type: TypeMessage, Room: "general", Text: "still alive"})
 	if env, ok := recv(t, c2); !ok || env.Text != "still alive" {
 		t.Fatalf("hub unhealthy after double Unregister (ok=%v, text=%q)", ok, env.Text)
 	}
@@ -152,8 +154,8 @@ func TestHub_DropsSlowClient(t *testing.T) {
 	// Run processes the broadcast channel FIFO, so the second fan-out runs only
 	// after the first completes. During the first, slow's buffer is full and it
 	// is dropped instead of blocking.
-	h.Broadcast(Envelope{Type: TypeMessage, Room: "general", Text: "one"})
-	h.Broadcast(Envelope{Type: TypeMessage, Room: "general", Text: "two"})
+	h.deliverLocal(Envelope{Type: TypeMessage, Room: "general", Text: "one"})
+	h.deliverLocal(Envelope{Type: TypeMessage, Room: "general", Text: "two"})
 
 	// Receiving both on fast proves both fan-outs ran, so slow was dropped.
 	if env, ok := recv(t, fast); !ok || env.Text != "one" {
@@ -173,7 +175,7 @@ func TestHub_DropsSlowClient(t *testing.T) {
 }
 
 func TestHub_ShutdownClosesAllClients(t *testing.T) {
-	h := NewHub(testLogger())
+	h := NewHub(testLogger(), bus.NewMemory())
 	ctx, cancel := context.WithCancel(context.Background())
 	go h.Run(ctx)
 

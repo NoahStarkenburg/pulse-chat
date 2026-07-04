@@ -28,10 +28,10 @@ type Config struct {
 	Server   ServerConfig
 	Log      LogConfig
 	Postgres PostgresConfig
+	Redis    RedisConfig
 
-	// Future phases will add: Redis, RabbitMQ, AI. Keeping the struct
-	// flat-but-grouped (e.g. Server.Addr) makes the call sites clearer than
-	// one giant flat struct.
+	// Future phases will add: RabbitMQ, AI. Keeping the struct flat-but-grouped
+	// (e.g. Server.Addr) makes the call sites clearer than one giant flat struct.
 }
 
 // ServerConfig groups HTTP/WebSocket server settings.
@@ -56,6 +56,13 @@ type PostgresConfig struct {
 	URL string // e.g. postgres://user:pass@host:5432/db?sslmode=verify-full
 }
 
+// RedisConfig groups Redis settings. URL is a standard redis:// connection
+// string; like the Postgres DSN it carries everything (host, db number, and in
+// production the password and TLS) in one value.
+type RedisConfig struct {
+	URL string // e.g. redis://localhost:6379/0
+}
+
 // Load reads environment variables and returns a fully populated Config. On
 // error it returns a non-nil error naming the variable that was wrong;
 // failing fast at startup beats mysterious runtime behavior.
@@ -74,6 +81,9 @@ func Load() (Config, error) {
 		},
 		Postgres: PostgresConfig{
 			URL: envString("PULSE_POSTGRES_URL", ""),
+		},
+		Redis: RedisConfig{
+			URL: envString("PULSE_REDIS_URL", ""),
 		},
 	}
 
