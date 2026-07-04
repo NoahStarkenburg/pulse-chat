@@ -97,7 +97,7 @@ func (c *Client) loadHistory(ctx context.Context) {
 
 // readPump reads from the socket until the connection errors or ctx is
 // cancelled, then unregisters. Each chat message is persisted before it is
-// broadcast, so the room never sees a message that was not stored.
+// published, so the room never sees a message that was not stored.
 func (c *Client) readPump(ctx context.Context) {
 	for {
 		var env Envelope
@@ -108,24 +108,31 @@ func (c *Client) readPump(ctx context.Context) {
 
 		switch env.Type {
 		case TypeChat:
-			// Persist first; broadcast only if the write succeeded. Broadcasting a
+			// Persist first; publish only if the write succeeded. Publishing a
 			// message we failed to store would show users something that vanishes on
 			// reload. Text is the only field taken from the client; the store stamps
 			// the id and timestamp.
 			stored, err := c.store.Insert(ctx, c.room, c.userID, env.Text)
 			if err != nil {
-				c.logger.Error("persisting message failed; not broadcasting", "err", err, "room", c.room)
+				c.logger.Error("persisting message failed; not publishing", "err", err, "room", c.room)
 				c.queue(Envelope{Type: TypeError, Room: c.room, Text: "message could not be delivered"})
 				continue
 			}
-			c.hub.Broadcast(Envelope{
+			// Publish to the bus rather than fanning out here. This instance's own
+			// subscription delivers the message back to its local clients (the
+			// loopback), so the sender sees it exactly once and so do clients on
+			// other instances. The message is already persisted, so a publish
+			// failure only means it will not appear live; a refresh recovers it.
+			if err := c.hub.Publish(ctx, Envelope{
 				Type:      TypeMessage,
 				Room:      c.room,
 				Text:      stored.Body,
 				ID:        stored.ID,
 				Sender:    stored.Sender,
 				Timestamp: &stored.CreatedAt,
-			})
+			}); err != nil {
+				c.logger.Error("publishing message failed", "err", err, "room", c.room)
+			}
 		default:
 			c.logger.Debug("ignoring unsupported message type", "type", env.Type)
 		}

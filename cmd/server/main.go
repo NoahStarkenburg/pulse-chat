@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/NoahStarkenburg/pulse-chat/internal/auth"
+	"github.com/NoahStarkenburg/pulse-chat/internal/bus"
 	"github.com/NoahStarkenburg/pulse-chat/internal/chat"
 	"github.com/NoahStarkenburg/pulse-chat/internal/config"
 	"github.com/NoahStarkenburg/pulse-chat/internal/store"
@@ -62,9 +63,22 @@ func run() error {
 	defer pool.Close()
 	logger.Info("connected to postgres")
 
+	// Connect to Redis before serving. From Phase 3 the message bus is a hard
+	// dependency: cross-instance fan-out runs through it, so fail fast at startup
+	// if it is missing or unreachable.
+	if cfg.Redis.URL == "" {
+		return fmt.Errorf("PULSE_REDIS_URL is required (set it in your environment or .env)")
+	}
+	msgBus, err := bus.NewRedisPubSub(ctx, cfg.Redis.URL)
+	if err != nil {
+		return fmt.Errorf("connecting to redis: %w", err)
+	}
+	defer msgBus.Close()
+	logger.Info("connected to redis")
+
 	// Start the Hub. Keep hubDone so shutdown can wait for it to finish draining
 	// WebSocket connections, which srv.Shutdown does not do (see below).
-	hub := chat.NewHub(logger)
+	hub := chat.NewHub(logger, msgBus)
 	hubDone := make(chan struct{})
 	go func() {
 		hub.Run(ctx)
@@ -101,14 +115,18 @@ func run() error {
 		_, _ = w.Write([]byte("ok"))
 	})
 
-	// /readyz reports readiness to serve. From Phase 2 the database is a hard
-	// dependency, so a failed ping returns 503 and a load balancer or Kubernetes
-	// stops routing traffic here until Postgres recovers.
+	// /readyz reports readiness to serve. Postgres (Phase 2) and Redis (Phase 3)
+	// are both hard dependencies, so a failed ping on either returns 503 and a
+	// load balancer or Kubernetes stops routing traffic here until it recovers.
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
 		pingCtx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
 		if err := pool.Ping(pingCtx); err != nil {
-			http.Error(w, "not ready", http.StatusServiceUnavailable)
+			http.Error(w, "not ready: postgres", http.StatusServiceUnavailable)
+			return
+		}
+		if err := msgBus.Ping(pingCtx); err != nil {
+			http.Error(w, "not ready: redis", http.StatusServiceUnavailable)
 			return
 		}
 		_, _ = w.Write([]byte("ok"))
