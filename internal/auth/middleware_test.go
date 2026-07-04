@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -13,7 +14,7 @@ func okHandler() http.Handler {
 }
 
 func TestRequireAuth_NoCookieIs401(t *testing.T) {
-	h := RequireAuth(NewSessionStore())(okHandler())
+	h := RequireAuth(NewMemorySessionStore())(okHandler())
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/me", nil))
 	if rec.Code != http.StatusUnauthorized {
@@ -22,7 +23,7 @@ func TestRequireAuth_NoCookieIs401(t *testing.T) {
 }
 
 func TestRequireAuth_InvalidTokenIs401(t *testing.T) {
-	h := RequireAuth(NewSessionStore())(okHandler())
+	h := RequireAuth(NewMemorySessionStore())(okHandler())
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/me", nil)
 	req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: "bogus"})
@@ -33,8 +34,8 @@ func TestRequireAuth_InvalidTokenIs401(t *testing.T) {
 }
 
 func TestRequireAuth_ValidTokenPassesAndInjectsUserID(t *testing.T) {
-	sessions := NewSessionStore()
-	token, _ := sessions.Issue("user-1")
+	sessions := NewMemorySessionStore()
+	token, _ := sessions.Issue(context.Background(), "user-1")
 
 	var gotID string
 	var gotOK bool

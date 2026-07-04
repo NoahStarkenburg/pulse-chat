@@ -12,7 +12,7 @@ const SessionCookieName = "pulse_session"
 //
 // It works for the WebSocket upgrade too: the upgrade is an ordinary HTTP GET,
 // so the cookie is present on it like any other request.
-func RequireAuth(sessions *SessionStore) func(http.Handler) http.Handler {
+func RequireAuth(sessions SessionStore) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			cookie, err := r.Cookie(SessionCookieName)
@@ -20,7 +20,7 @@ func RequireAuth(sessions *SessionStore) func(http.Handler) http.Handler {
 				http.Error(w, "authentication required", http.StatusUnauthorized)
 				return
 			}
-			userID, ok := sessions.Validate(cookie.Value)
+			userID, ok := sessions.Validate(r.Context(), cookie.Value)
 			if !ok {
 				http.Error(w, "authentication required", http.StatusUnauthorized)
 				return

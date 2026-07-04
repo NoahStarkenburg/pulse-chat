@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -19,14 +20,14 @@ const (
 // Handlers serves the authentication HTTP endpoints.
 type Handlers struct {
 	users    UserStore
-	sessions *SessionStore
+	sessions SessionStore
 	logger   *slog.Logger
 	secure   bool // set the cookie Secure flag (true behind HTTPS)
 }
 
 // NewHandlers constructs the auth HTTP handlers. secure should be true in
 // production so the session cookie is only sent over HTTPS.
-func NewHandlers(users UserStore, sessions *SessionStore, logger *slog.Logger, secure bool) *Handlers {
+func NewHandlers(users UserStore, sessions SessionStore, logger *slog.Logger, secure bool) *Handlers {
 	return &Handlers{users: users, sessions: sessions, logger: logger, secure: secure}
 }
 
@@ -71,7 +72,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !h.issueSessionCookie(w, user.ID) {
+	if !h.issueSessionCookie(r.Context(), w, user.ID) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, userResponse{ID: user.ID, Username: user.Username})
@@ -100,7 +101,7 @@ func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !h.issueSessionCookie(w, user.ID) {
+	if !h.issueSessionCookie(r.Context(), w, user.ID) {
 		return
 	}
 	writeJSON(w, http.StatusOK, userResponse{ID: user.ID, Username: user.Username})
@@ -109,7 +110,9 @@ func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 // Logout invalidates the session and clears the cookie. Mounted on POST /logout.
 func (h *Handlers) Logout(w http.ResponseWriter, r *http.Request) {
 	if cookie, err := r.Cookie(SessionCookieName); err == nil {
-		h.sessions.Delete(cookie.Value)
+		if err := h.sessions.Delete(r.Context(), cookie.Value); err != nil {
+			h.logger.Warn("deleting session on logout failed", "err", err)
+		}
 	}
 	h.clearSessionCookie(w)
 	w.WriteHeader(http.StatusNoContent)
@@ -132,8 +135,8 @@ func (h *Handlers) Me(w http.ResponseWriter, r *http.Request) {
 
 // issueSessionCookie creates a session and sets the cookie. It returns false
 // (after writing an error response) if the session could not be created.
-func (h *Handlers) issueSessionCookie(w http.ResponseWriter, userID string) bool {
-	token, err := h.sessions.Issue(userID)
+func (h *Handlers) issueSessionCookie(ctx context.Context, w http.ResponseWriter, userID string) bool {
+	token, err := h.sessions.Issue(ctx, userID)
 	if err != nil {
 		h.logger.Error("issuing session", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
