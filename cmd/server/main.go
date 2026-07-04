@@ -124,7 +124,14 @@ func run() error {
 	// Users live in Postgres (Phase 2); sessions stay in-memory until the Redis
 	// phase promotes them.
 	users := auth.NewPostgresUserStore(pool)
-	sessions := auth.NewSessionStore()
+	// Sessions live in Redis so every instance validates against the same store,
+	// they survive a restart, and expiry rides on the key TTL. Fail fast if Redis
+	// is unreachable, like the bus and cache.
+	sessions, err := auth.NewRedisSessionStore(ctx, cfg.Redis.URL)
+	if err != nil {
+		return fmt.Errorf("connecting to redis sessions: %w", err)
+	}
+	defer sessions.Close()
 	authHandlers := auth.NewHandlers(users, sessions, logger, cfg.Server.CookieSecure)
 	requireAuth := auth.RequireAuth(sessions)
 	messages := store.NewMessageRepo(pool)

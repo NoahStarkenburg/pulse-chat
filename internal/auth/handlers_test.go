@@ -22,7 +22,7 @@ func testLogger() *slog.Logger {
 func newTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	users := NewMemoryUserStore()
-	sessions := NewSessionStore()
+	sessions := NewMemorySessionStore()
 	h := NewHandlers(users, sessions, testLogger(), false)
 
 	mux := http.NewServeMux()
