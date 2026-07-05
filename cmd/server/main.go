@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -17,10 +18,16 @@ import (
 
 	"github.com/NoahStarkenburg/pulse-chat/internal/auth"
 	"github.com/NoahStarkenburg/pulse-chat/internal/bus"
+	"github.com/NoahStarkenburg/pulse-chat/internal/cache"
 	"github.com/NoahStarkenburg/pulse-chat/internal/chat"
 	"github.com/NoahStarkenburg/pulse-chat/internal/config"
 	"github.com/NoahStarkenburg/pulse-chat/internal/store"
 )
+
+// presenceSweepInterval is how often each instance reclaims stale presence
+// entries from Redis. The sweep is idempotent, so every instance can run it
+// without a lock.
+const presenceSweepInterval = 30 * time.Second
 
 func main() {
 	// run returns an error so it is testable in isolation; main only maps it to
@@ -76,6 +83,14 @@ func run() error {
 	defer msgBus.Close()
 	logger.Info("connected to redis")
 
+	// The cache uses the same Redis for derived state (presence, rate limiting,
+	// recent messages). It owns its own client so the bus stays independent.
+	msgCache, err := cache.New(ctx, cfg.Redis.URL)
+	if err != nil {
+		return fmt.Errorf("connecting to redis cache: %w", err)
+	}
+	defer msgCache.Close()
+
 	// Start the Hub. Keep hubDone so shutdown can wait for it to finish draining
 	// WebSocket connections, which srv.Shutdown does not do (see below).
 	hub := chat.NewHub(logger, msgBus)
@@ -83,6 +98,25 @@ func run() error {
 	go func() {
 		hub.Run(ctx)
 		close(hubDone)
+	}()
+
+	// Reclaim stale presence entries periodically. The sweep is idempotent and
+	// safe on every instance, so it needs no leader election.
+	go func() {
+		ticker := time.NewTicker(presenceSweepInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				sweepCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+				if err := msgCache.SweepStalePresence(sweepCtx); err != nil {
+					logger.Warn("presence sweep failed", "err", err)
+				}
+				cancel()
+			}
+		}
 	}()
 
 	mux := http.NewServeMux()
@@ -138,7 +172,34 @@ func run() error {
 	mux.Handle("GET /me", requireAuth(http.HandlerFunc(authHandlers.Me)))
 
 	// /ws requires a valid session; the sender comes from it, not the URL.
-	mux.Handle("GET /ws", requireAuth(chat.NewWebSocketHandler(hub, messages, logger, resolveSender)))
+	mux.Handle("GET /ws", requireAuth(chat.NewWebSocketHandler(hub, messages, msgCache, logger, resolveSender)))
+
+	// Room presence: who is online in a room right now, served from Redis. Behind
+	// auth like /ws, since only members should see a room's roster.
+	mux.Handle("GET /rooms/{room}/online", requireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		room := r.PathValue("room")
+		if room == "" {
+			http.Error(w, "missing room", http.StatusBadRequest)
+			return
+		}
+		readCtx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+		online, err := msgCache.Online(readCtx, room)
+		if err != nil {
+			logger.Error("reading presence failed", "err", err, "room", room)
+			http.Error(w, "could not read presence", http.StatusInternalServerError)
+			return
+		}
+		if online == nil {
+			online = []string{}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"room":   room,
+			"online": online,
+			"count":  len(online),
+		})
+	})))
 
 	// Serve the browser test page. http.Dir is relative to the working
 	// directory, so run from the repo root. In production this belongs on a CDN.
