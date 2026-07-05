@@ -52,6 +52,30 @@ func TestCache_RateLimit(t *testing.T) {
 	}
 }
 
+func TestCache_LoginRateLimit(t *testing.T) {
+	c := newTestCache(t)
+	ctx := context.Background()
+	ip := fmt.Sprintf("ip-%d", time.Now().UnixNano())
+	t.Cleanup(func() { c.client.Del(ctx, loginKey(ip)) })
+
+	for i := 1; i <= loginRateMax; i++ {
+		allowed, err := c.AllowLogin(ctx, ip)
+		if err != nil {
+			t.Fatalf("AllowLogin #%d: %v", i, err)
+		}
+		if !allowed {
+			t.Fatalf("attempt #%d rejected; the first %d must be allowed", i, loginRateMax)
+		}
+	}
+	allowed, err := c.AllowLogin(ctx, ip)
+	if err != nil {
+		t.Fatalf("AllowLogin over-limit: %v", err)
+	}
+	if allowed {
+		t.Fatalf("attempt #%d allowed; it exceeds the limit of %d", loginRateMax+1, loginRateMax)
+	}
+}
+
 func TestCache_Presence(t *testing.T) {
 	c := newTestCache(t)
 	ctx := context.Background()

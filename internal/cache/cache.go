@@ -34,6 +34,12 @@ const (
 	// rateLimitWindow is the fixed window the limit applies over.
 	rateLimitWindow = 5 * time.Second
 
+	// loginRateMax and loginRateWindow bound authentication attempts (login and
+	// signup) per client IP, to slow brute-force guessing and signup spam before
+	// any user is known.
+	loginRateMax    = 10
+	loginRateWindow = time.Minute
+
 	// recentLimit is how many recent messages the cache keeps per room. It matches
 	// the history limit the chat layer requests so a cache hit fully serves a join.
 	recentLimit = 50
@@ -132,17 +138,33 @@ return n
 `)
 
 func rateKey(user string) string { return "ratelimit:" + user }
+func loginKey(ip string) string  { return "ratelimit:login:" + ip }
 
-// Allow reports whether user may send another message now, under a fixed window
-// of rateLimitMax messages per rateLimitWindow. Because the increment and expiry
-// are one atomic script, concurrent sends from the same user cannot both slip
-// past the limit: Redis runs the script to completion before the next starts.
-func (c *Cache) Allow(ctx context.Context, user string) (bool, error) {
-	n, err := allowScript.Run(ctx, c.client, []string{rateKey(user)}, rateLimitWindow.Milliseconds()).Int()
+// allow runs the atomic fixed-window increment for key and reports whether the
+// post-increment count is still within limit. It is the shared core of the
+// per-user message limit and the per-IP login limit.
+func (c *Cache) allow(ctx context.Context, key string, limit int, window time.Duration) (bool, error) {
+	n, err := allowScript.Run(ctx, c.client, []string{key}, window.Milliseconds()).Int()
 	if err != nil {
 		return false, err
 	}
-	return n <= rateLimitMax, nil
+	return n <= limit, nil
+}
+
+// Allow reports whether user may send another chat message now, under a fixed
+// window of rateLimitMax messages per rateLimitWindow. Because the increment and
+// expiry are one atomic script, concurrent sends from the same user cannot both
+// slip past the limit: Redis runs the script to completion before the next starts.
+func (c *Cache) Allow(ctx context.Context, user string) (bool, error) {
+	return c.allow(ctx, rateKey(user), rateLimitMax, rateLimitWindow)
+}
+
+// AllowLogin reports whether another authentication attempt from ip is allowed,
+// under a per-IP window of loginRateMax attempts per loginRateWindow. It throttles
+// login and signup by source address, the classic brute-force and signup-spam
+// defense, before any user is known.
+func (c *Cache) AllowLogin(ctx context.Context, ip string) (bool, error) {
+	return c.allow(ctx, loginKey(ip), loginRateMax, loginRateWindow)
 }
 
 // --- Recent-message cache ---------------------------------------------------
