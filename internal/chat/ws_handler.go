@@ -19,7 +19,7 @@ import (
 // A WebSocket starts as an HTTP GET with an Upgrade header; websocket.Accept
 // performs the 101 handshake, after which the connection is hijacked and the
 // normal HTTP machinery no longer manages it.
-func NewWebSocketHandler(hub *Hub, store MessageStore, logger *slog.Logger, resolveSender func(*http.Request) (userID, username string, ok bool)) http.Handler {
+func NewWebSocketHandler(hub *Hub, store MessageStore, cache Cache, logger *slog.Logger, resolveSender func(*http.Request) (userID, username string, ok bool)) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		room := r.URL.Query().Get("room")
 		if room == "" {
@@ -45,7 +45,7 @@ func NewWebSocketHandler(hub *Hub, store MessageStore, logger *slog.Logger, reso
 		// already closed it gracefully.
 		defer func() { _ = conn.CloseNow() }()
 
-		client := NewClient(conn, hub, store, room, userID, sender, logger)
+		client := NewClient(conn, hub, store, cache, room, userID, sender, logger)
 
 		ctx := r.Context()
 		go client.writePump(ctx)
