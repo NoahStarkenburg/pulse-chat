@@ -5,23 +5,33 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 )
+
+// newRedisClient dials the Redis named by PULSE_REDIS_URL, skipping when none is
+// set, and registers cleanup. The integration tests share this one helper.
+func newRedisClient(t *testing.T) *redis.Client {
+	t.Helper()
+	url := os.Getenv("PULSE_REDIS_URL")
+	if url == "" {
+		t.Skip("PULSE_REDIS_URL not set; skipping Redis integration test")
+	}
+	opt, err := redis.ParseURL(url)
+	if err != nil {
+		t.Fatalf("parse url: %v", err)
+	}
+	client := redis.NewClient(opt)
+	t.Cleanup(func() { _ = client.Close() })
+	return client
+}
 
 // TestRedisPubSub_Integration runs against a real Redis named by PULSE_REDIS_URL.
 // It skips when none is configured, so the suite stays green in CI (which has no
 // Redis) and runs locally when the container is up.
 func TestRedisPubSub_Integration(t *testing.T) {
-	url := os.Getenv("PULSE_REDIS_URL")
-	if url == "" {
-		t.Skip("PULSE_REDIS_URL not set; skipping Redis integration test")
-	}
 	ctx := context.Background()
-
-	b, err := NewRedisPubSub(ctx, url)
-	if err != nil {
-		t.Fatalf("connect: %v", err)
-	}
-	defer b.Close()
+	b := NewRedisPubSub(newRedisClient(t))
 
 	sub, err := b.Subscribe(ctx, "test:phase3")
 	if err != nil {
@@ -48,17 +58,8 @@ func TestRedisPubSub_Integration(t *testing.T) {
 // NOT tear the subscription down. go-redis receives on its own internal context,
 // which is what lets a room subscription outlive the connection that opened it.
 func TestRedisPubSub_SurvivesSubscribeContextCancel(t *testing.T) {
-	url := os.Getenv("PULSE_REDIS_URL")
-	if url == "" {
-		t.Skip("PULSE_REDIS_URL not set; skipping Redis integration test")
-	}
 	ctx := context.Background()
-
-	b, err := NewRedisPubSub(ctx, url)
-	if err != nil {
-		t.Fatalf("connect: %v", err)
-	}
-	defer b.Close()
+	b := NewRedisPubSub(newRedisClient(t))
 
 	subCtx, cancel := context.WithCancel(ctx)
 	sub, err := b.Subscribe(subCtx, "test:phase3-cancel")

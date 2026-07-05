@@ -20,12 +20,13 @@ func newTestCache(t *testing.T) *Cache {
 	if url == "" {
 		t.Skip("PULSE_REDIS_URL not set; skipping Redis integration test")
 	}
-	c, err := New(context.Background(), url)
+	opt, err := redis.ParseURL(url)
 	if err != nil {
-		t.Fatalf("connect: %v", err)
+		t.Fatalf("parse url: %v", err)
 	}
-	t.Cleanup(func() { _ = c.Close() })
-	return c
+	client := redis.NewClient(opt)
+	t.Cleanup(func() { _ = client.Close() })
+	return New(client)
 }
 
 func TestCache_RateLimit(t *testing.T) {
