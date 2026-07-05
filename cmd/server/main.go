@@ -132,7 +132,7 @@ func run() error {
 		return fmt.Errorf("connecting to redis sessions: %w", err)
 	}
 	defer sessions.Close()
-	authHandlers := auth.NewHandlers(users, sessions, logger, cfg.Server.CookieSecure)
+	authHandlers := auth.NewHandlers(users, sessions, msgCache, logger, cfg.Server.CookieSecure)
 	requireAuth := auth.RequireAuth(sessions)
 	messages := store.NewMessageRepo(pool)
 
