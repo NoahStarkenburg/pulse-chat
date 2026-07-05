@@ -4,6 +4,8 @@ import (
 	"context"
 	"os"
 	"testing"
+
+	"github.com/redis/go-redis/v9"
 )
 
 // TestRedisSessionStore_Integration runs against a real Redis named by
@@ -16,11 +18,13 @@ func TestRedisSessionStore_Integration(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	s, err := NewRedisSessionStore(ctx, url)
+	opt, err := redis.ParseURL(url)
 	if err != nil {
-		t.Fatalf("connect: %v", err)
+		t.Fatalf("parse url: %v", err)
 	}
-	defer s.Close()
+	client := redis.NewClient(opt)
+	defer client.Close()
+	s := NewRedisSessionStore(client)
 
 	token, err := s.Issue(ctx, "user-1")
 	if err != nil {

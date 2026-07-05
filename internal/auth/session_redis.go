@@ -15,24 +15,11 @@ type RedisSessionStore struct {
 	client *redis.Client
 }
 
-// NewRedisSessionStore connects to Redis from a redis:// URL and verifies it with
-// a PING, so a bad URL or unreachable Redis fails fast at startup. The caller
-// owns the returned store and must Close it on shutdown.
-func NewRedisSessionStore(ctx context.Context, url string) (*RedisSessionStore, error) {
-	opt, err := redis.ParseURL(url)
-	if err != nil {
-		return nil, fmt.Errorf("parsing redis url: %w", err)
-	}
-	client := redis.NewClient(opt)
-	if err := client.Ping(ctx).Err(); err != nil {
-		_ = client.Close()
-		return nil, fmt.Errorf("pinging redis: %w", err)
-	}
-	return &RedisSessionStore{client: client}, nil
+// NewRedisSessionStore wraps a shared Redis client as a session store. The caller
+// owns the client (creates and closes it); the store only borrows it.
+func NewRedisSessionStore(client *redis.Client) *RedisSessionStore {
+	return &RedisSessionStore{client: client}
 }
-
-// Close releases the Redis connection pool.
-func (s *RedisSessionStore) Close() error { return s.client.Close() }
 
 func sessionKey(token string) string { return "session:" + token }
 

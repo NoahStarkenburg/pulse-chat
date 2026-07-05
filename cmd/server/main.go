@@ -16,6 +16,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/redis/go-redis/v9"
+
 	"github.com/NoahStarkenburg/pulse-chat/internal/auth"
 	"github.com/NoahStarkenburg/pulse-chat/internal/bus"
 	"github.com/NoahStarkenburg/pulse-chat/internal/cache"
@@ -76,20 +78,24 @@ func run() error {
 	if cfg.Redis.URL == "" {
 		return fmt.Errorf("PULSE_REDIS_URL is required (set it in your environment or .env)")
 	}
-	msgBus, err := bus.NewRedisPubSub(ctx, cfg.Redis.URL)
+	// One Redis client, shared by the bus, the cache, and the session store.
+	// go-redis clients are safe for concurrent use and pool connections
+	// internally, so a single shared client is the right default; main owns its
+	// lifecycle and closes it once.
+	redisOpt, err := redis.ParseURL(cfg.Redis.URL)
 	if err != nil {
+		return fmt.Errorf("parsing redis url: %w", err)
+	}
+	redisClient := redis.NewClient(redisOpt)
+	if err := redisClient.Ping(ctx).Err(); err != nil {
+		_ = redisClient.Close()
 		return fmt.Errorf("connecting to redis: %w", err)
 	}
-	defer msgBus.Close()
+	defer redisClient.Close()
 	logger.Info("connected to redis")
 
-	// The cache uses the same Redis for derived state (presence, rate limiting,
-	// recent messages). It owns its own client so the bus stays independent.
-	msgCache, err := cache.New(ctx, cfg.Redis.URL)
-	if err != nil {
-		return fmt.Errorf("connecting to redis cache: %w", err)
-	}
-	defer msgCache.Close()
+	msgBus := bus.NewRedisPubSub(redisClient)
+	msgCache := cache.New(redisClient)
 
 	// Start the Hub. Keep hubDone so shutdown can wait for it to finish draining
 	// WebSocket connections, which srv.Shutdown does not do (see below).
@@ -121,17 +127,12 @@ func run() error {
 
 	mux := http.NewServeMux()
 
-	// Users live in Postgres (Phase 2); sessions stay in-memory until the Redis
-	// phase promotes them.
+	// Users live in Postgres (Phase 2).
 	users := auth.NewPostgresUserStore(pool)
-	// Sessions live in Redis so every instance validates against the same store,
-	// they survive a restart, and expiry rides on the key TTL. Fail fast if Redis
-	// is unreachable, like the bus and cache.
-	sessions, err := auth.NewRedisSessionStore(ctx, cfg.Redis.URL)
-	if err != nil {
-		return fmt.Errorf("connecting to redis sessions: %w", err)
-	}
-	defer sessions.Close()
+	// Sessions live in Redis (the shared client) so every instance validates
+	// against the same store, they survive a restart, and expiry rides on the key
+	// TTL.
+	sessions := auth.NewRedisSessionStore(redisClient)
 	authHandlers := auth.NewHandlers(users, sessions, msgCache, logger, cfg.Server.CookieSecure)
 	requireAuth := auth.RequireAuth(sessions)
 	messages := store.NewMessageRepo(pool)
