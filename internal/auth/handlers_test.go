@@ -18,12 +18,16 @@ func testLogger() *slog.Logger {
 }
 
 // newTestServer wires the auth routes exactly as main does and returns a running
-// httptest server.
+// httptest server, with rate limiting disabled.
 func newTestServer(t *testing.T) *httptest.Server {
+	return newTestServerLimiter(t, allowAllLimiter{})
+}
+
+func newTestServerLimiter(t *testing.T, limiter LoginLimiter) *httptest.Server {
 	t.Helper()
 	users := NewMemoryUserStore()
-	sessions := NewSessionStore()
-	h := NewHandlers(users, sessions, testLogger(), false)
+	sessions := NewMemorySessionStore()
+	h := NewHandlers(users, sessions, limiter, testLogger(), false)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /signup", h.Signup)
@@ -34,6 +38,42 @@ func newTestServer(t *testing.T) *httptest.Server {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return srv
+}
+
+// allowAllLimiter never limits, for tests not about rate limiting.
+type allowAllLimiter struct{}
+
+func (allowAllLimiter) AllowLogin(context.Context, string) (bool, error) { return true, nil }
+
+// countingLimiter allows the first n attempts, then denies.
+type countingLimiter struct {
+	n     int
+	calls int
+}
+
+func (c *countingLimiter) AllowLogin(context.Context, string) (bool, error) {
+	c.calls++
+	return c.calls <= c.n, nil
+}
+
+func TestAuth_LoginRateLimited(t *testing.T) {
+	// The limiter allows two attempts, then denies. The third must come back 429
+	// before any credential work.
+	srv := newTestServerLimiter(t, &countingLimiter{n: 2})
+	c := newClient(t)
+
+	for i := 0; i < 2; i++ {
+		resp := post(t, c, srv.URL+"/login", `{"username":"nobody","password":"password123"}`)
+		if resp.StatusCode == http.StatusTooManyRequests {
+			t.Fatalf("attempt %d was rate limited too early", i+1)
+		}
+		resp.Body.Close()
+	}
+	resp := post(t, c, srv.URL+"/login", `{"username":"nobody","password":"password123"}`)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("third attempt status = %d, want 429", resp.StatusCode)
+	}
 }
 
 // newClient returns an HTTP client with a cookie jar so the session cookie

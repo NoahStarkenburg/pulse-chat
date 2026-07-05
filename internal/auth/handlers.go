@@ -1,9 +1,11 @@
 package auth
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"strings"
 )
@@ -16,18 +18,26 @@ const (
 	maxPasswordLen = 72
 )
 
+// LoginLimiter throttles authentication attempts by client IP, so brute-force
+// guessing and signup spam from one source are slowed before any user is known.
+// *cache.Cache satisfies it.
+type LoginLimiter interface {
+	AllowLogin(ctx context.Context, ip string) (bool, error)
+}
+
 // Handlers serves the authentication HTTP endpoints.
 type Handlers struct {
 	users    UserStore
-	sessions *SessionStore
+	sessions SessionStore
+	limiter  LoginLimiter
 	logger   *slog.Logger
 	secure   bool // set the cookie Secure flag (true behind HTTPS)
 }
 
 // NewHandlers constructs the auth HTTP handlers. secure should be true in
 // production so the session cookie is only sent over HTTPS.
-func NewHandlers(users UserStore, sessions *SessionStore, logger *slog.Logger, secure bool) *Handlers {
-	return &Handlers{users: users, sessions: sessions, logger: logger, secure: secure}
+func NewHandlers(users UserStore, sessions SessionStore, limiter LoginLimiter, logger *slog.Logger, secure bool) *Handlers {
+	return &Handlers{users: users, sessions: sessions, limiter: limiter, logger: logger, secure: secure}
 }
 
 type credentials struct {
@@ -42,6 +52,9 @@ type userResponse struct {
 
 // Signup creates a user and logs them in. Mounted on POST /signup.
 func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
+	if !h.allowAttempt(w, r) {
+		return
+	}
 	creds, ok := decodeCredentials(w, r)
 	if !ok {
 		return
@@ -71,7 +84,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !h.issueSessionCookie(w, user.ID) {
+	if !h.issueSessionCookie(r.Context(), w, user.ID) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, userResponse{ID: user.ID, Username: user.Username})
@@ -79,6 +92,9 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 
 // Login validates credentials and issues a session cookie. Mounted on POST /login.
 func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
+	if !h.allowAttempt(w, r) {
+		return
+	}
 	creds, ok := decodeCredentials(w, r)
 	if !ok {
 		return
@@ -100,7 +116,7 @@ func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !h.issueSessionCookie(w, user.ID) {
+	if !h.issueSessionCookie(r.Context(), w, user.ID) {
 		return
 	}
 	writeJSON(w, http.StatusOK, userResponse{ID: user.ID, Username: user.Username})
@@ -109,7 +125,9 @@ func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 // Logout invalidates the session and clears the cookie. Mounted on POST /logout.
 func (h *Handlers) Logout(w http.ResponseWriter, r *http.Request) {
 	if cookie, err := r.Cookie(SessionCookieName); err == nil {
-		h.sessions.Delete(cookie.Value)
+		if err := h.sessions.Delete(r.Context(), cookie.Value); err != nil {
+			h.logger.Warn("deleting session on logout failed", "err", err)
+		}
 	}
 	h.clearSessionCookie(w)
 	w.WriteHeader(http.StatusNoContent)
@@ -132,8 +150,8 @@ func (h *Handlers) Me(w http.ResponseWriter, r *http.Request) {
 
 // issueSessionCookie creates a session and sets the cookie. It returns false
 // (after writing an error response) if the session could not be created.
-func (h *Handlers) issueSessionCookie(w http.ResponseWriter, userID string) bool {
-	token, err := h.sessions.Issue(userID)
+func (h *Handlers) issueSessionCookie(ctx context.Context, w http.ResponseWriter, userID string) bool {
+	token, err := h.sessions.Issue(ctx, userID)
 	if err != nil {
 		h.logger.Error("issuing session", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -161,6 +179,36 @@ func (h *Handlers) clearSessionCookie(w http.ResponseWriter) {
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   -1, // delete immediately
 	})
+}
+
+// allowAttempt enforces the per-IP authentication rate limit. It writes 429 and
+// returns false when the limit is exceeded. On a limiter error it fails open
+// (allows the attempt) and logs, like the message limiter: rate limiting is a
+// protective measure, not a correctness gate, so a limiter outage should not
+// lock everyone out of login.
+func (h *Handlers) allowAttempt(w http.ResponseWriter, r *http.Request) bool {
+	allowed, err := h.limiter.AllowLogin(r.Context(), clientIP(r))
+	if err != nil {
+		h.logger.Warn("auth rate limiter unavailable; allowing attempt", "err", err)
+		return true
+	}
+	if !allowed {
+		http.Error(w, "too many attempts; please slow down", http.StatusTooManyRequests)
+		return false
+	}
+	return true
+}
+
+// clientIP returns the client's IP for rate limiting. It uses the direct remote
+// address; behind a proxy or load balancer the real client IP must instead come
+// from a trusted X-Forwarded-For header (see PULSE_TRUSTED_PROXY_CIDRS, Phase 7),
+// or every client would share the proxy's address and one shared limit.
+func clientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }
 
 // normalizeUsername canonicalizes a username so lookups are case-insensitive
