@@ -72,9 +72,9 @@ func run() error {
 	defer pool.Close()
 	logger.Info("connected to postgres")
 
-	// Connect to Redis before serving. From Phase 3 the message bus is a hard
-	// dependency: cross-instance fan-out runs through it, so fail fast at startup
-	// if it is missing or unreachable.
+	// Connect to Redis before serving. From Phase 3 on it is a hard dependency:
+	// the message bus (cross-instance fan-out), the cache, and sessions all run
+	// through it, so fail fast at startup if it is missing or unreachable.
 	if cfg.Redis.URL == "" {
 		return fmt.Errorf("PULSE_REDIS_URL is required (set it in your environment or .env)")
 	}

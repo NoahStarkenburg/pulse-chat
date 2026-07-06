@@ -10,7 +10,8 @@ import (
 // RedisSessionStore keeps sessions in Redis so every server instance validates
 // against the same shared store. Unlike the in-memory store, sessions survive a
 // restart and work behind a load balancer, and expiry is Redis's own key TTL.
-// It owns its own client, symmetric to the bus and cache.
+// The client is owned by the caller (main) and shared with the bus and cache;
+// the store only borrows it.
 type RedisSessionStore struct {
 	client *redis.Client
 }
