@@ -47,10 +47,9 @@ const (
 	recentTTL = time.Hour
 )
 
-// Cache wraps a Redis client used for derived state. It owns its own client,
-// symmetric to bus.RedisPubSub, so the two packages stay independent and the
-// Phase 3 bus is untouched. (Sharing one client between them is a reasonable
-// alternative; kept separate here to keep the change surgical.)
+// Cache wraps a shared Redis client used for derived state (presence, rate
+// limiting, recent messages). The client is owned by the caller (main) and
+// shared with the bus and session store; Cache only borrows it.
 type Cache struct {
 	client *redis.Client
 }
