@@ -13,21 +13,10 @@ type RedisPubSub struct {
 	client *redis.Client
 }
 
-// NewRedisPubSub connects to Redis from a redis:// URL and verifies the
-// connection with a PING, so a bad URL or unreachable Redis fails fast at
-// startup rather than on the first publish. The caller owns the returned bus and
-// must Close it on shutdown.
-func NewRedisPubSub(ctx context.Context, url string) (*RedisPubSub, error) {
-	opt, err := redis.ParseURL(url)
-	if err != nil {
-		return nil, fmt.Errorf("parsing redis url: %w", err)
-	}
-	client := redis.NewClient(opt)
-	if err := client.Ping(ctx).Err(); err != nil {
-		_ = client.Close()
-		return nil, fmt.Errorf("pinging redis: %w", err)
-	}
-	return &RedisPubSub{client: client}, nil
+// NewRedisPubSub wraps a shared Redis client as a PubSub. The caller owns the
+// client (creates, pings, and closes it); the bus only borrows it.
+func NewRedisPubSub(client *redis.Client) *RedisPubSub {
+	return &RedisPubSub{client: client}
 }
 
 // Ping reports whether Redis is reachable. Used by the readiness check.
@@ -51,9 +40,10 @@ func (r *RedisPubSub) Subscribe(ctx context.Context, channel string) (Subscripti
 	return newRedisSubscription(ps), nil
 }
 
-func (r *RedisPubSub) Close() error {
-	return r.client.Close()
-}
+// Close is a no-op: the Redis client is owned by the caller, which closes it. It
+// exists to satisfy the PubSub interface (the in-memory bus uses Close to release
+// its own resources).
+func (r *RedisPubSub) Close() error { return nil }
 
 // redisSubscription adapts a *redis.PubSub to the Subscription interface,
 // translating *redis.Message into the raw []byte payload the bus speaks.

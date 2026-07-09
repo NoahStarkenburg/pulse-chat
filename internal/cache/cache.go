@@ -9,7 +9,6 @@ package cache
 
 import (
 	"context"
-	"fmt"
 	"strconv"
 	"time"
 
@@ -48,32 +47,18 @@ const (
 	recentTTL = time.Hour
 )
 
-// Cache wraps a Redis client used for derived state. It owns its own client,
-// symmetric to bus.RedisPubSub, so the two packages stay independent and the
-// Phase 3 bus is untouched. (Sharing one client between them is a reasonable
-// alternative; kept separate here to keep the change surgical.)
+// Cache wraps a shared Redis client used for derived state (presence, rate
+// limiting, recent messages). The client is owned by the caller (main) and
+// shared with the bus and session store; Cache only borrows it.
 type Cache struct {
 	client *redis.Client
 }
 
-// New connects to Redis from a redis:// URL and verifies it with a PING, so a
-// bad URL or unreachable Redis fails fast at startup rather than on first use.
-// The caller owns the returned Cache and must Close it on shutdown.
-func New(ctx context.Context, url string) (*Cache, error) {
-	opt, err := redis.ParseURL(url)
-	if err != nil {
-		return nil, fmt.Errorf("parsing redis url: %w", err)
-	}
-	client := redis.NewClient(opt)
-	if err := client.Ping(ctx).Err(); err != nil {
-		_ = client.Close()
-		return nil, fmt.Errorf("pinging redis: %w", err)
-	}
-	return &Cache{client: client}, nil
+// New wraps a shared Redis client for derived state. The caller owns the client
+// (creates and closes it); Cache only borrows it.
+func New(client *redis.Client) *Cache {
+	return &Cache{client: client}
 }
-
-// Close releases the Redis connection pool.
-func (c *Cache) Close() error { return c.client.Close() }
 
 // --- Presence ---------------------------------------------------------------
 //
