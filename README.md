@@ -33,11 +33,11 @@ teach you. This one doesn't:
 
 | Phase  | Topic                                                       | Status      |
 |--------|-------------------------------------------------------------|-------------|
-| 1      | WebSockets, single-server chat                              | Not started |
-| **1.5**| **Authentication (sessions, middleware, secure WS upgrade)**| Not started |
-| 2      | Postgres for durable message history                        | Not started |
-| 3      | Redis Pub/Sub for horizontal scaling                        | Not started |
-| 4      | Redis as a data store (presence, cache, rate limiting)      | Not started |
+| 1      | WebSockets, single-server chat                              | Done        |
+| **1.5**| **Authentication (sessions, middleware, secure WS upgrade)**| Done        |
+| 2      | Postgres for durable message history                        | Done        |
+| 3      | Redis Pub/Sub for horizontal scaling                        | Done        |
+| 4      | Redis as a data store (presence, cache, rate limiting)      | Done        |
 | 5      | RabbitMQ + a worker (AI moderation)                         | Not started |
 | **5b** | **gRPC: split worker into a moderation service** *(stretch)*| Not started |
 | 6      | Worker pool, metrics, dashboard, load tests                 | Not started |
