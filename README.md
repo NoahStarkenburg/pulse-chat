@@ -1,13 +1,14 @@
 # Pulse Chat
 
 A horizontally-scalable, real-time multi-room chat system with AI-powered
-moderation. Built in Go from first principles to learn how WebSockets, Redis
-Pub/Sub, RabbitMQ, and durable background workers actually work - protocol-by-
-protocol, not framework-by-framework.
+moderation. Built in Go from first principles to understand how WebSockets,
+Redis Pub/Sub, RabbitMQ, and durable background workers actually work -
+protocol-by-protocol, not framework-by-framework.
 
-This is a learning project built in public. The architecture, phasing, and
-discipline are deliberate. Code is written with comments that explain *why*,
-not *what*.
+Built in public, one layer at a time. The architecture, phasing, and discipline
+are intentional: every phase implements a distributed-systems concept by hand
+and ends with a failure experiment. Code is written with comments that explain
+*why*, not *what*.
 
 ## What makes this different
 
